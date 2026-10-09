@@ -1,0 +1,183 @@
+/*
+ * 设计令牌 —— 监听席（The Listening Post）。
+ *
+ * 这不是一个"新闻 App"，是一台接收 AI 世界电讯的监听设备：
+ * 每一条资讯是一条电讯稿，带着信源数（谁在说）、信号数（说了多少遍）、
+ * 到达时间（什么时候收到的）；热榜是"当前最强的信号"。
+ *
+ *   昼（浅色，设计基准）：仪器面板的亚光灰白底 + 墨色文字，
+ *                        唯一的彩色是"信号红"。
+ *   夜（深色）          ：夜海图的深靛底，信号红提亮一档。
+ *
+ * 主题只有一套机制：`prefers-color-scheme`。主进程把用户选择灌进
+ * nativeTheme.themeSource，渲染层自动跟着变 —— 不需要给每个元素发主题状态，
+ * 也不会出现「JS 还没跑起来时是错的颜色」的闪帧。
+ *
+ * 强调色纪律：全站只有一个强调色 --signal（信号红）。它只出现在
+ * 「这里有信号」的地方 —— 当前导航、热榜前三、信号带的点亮格、关键动作。
+ * 其余一律用墨阶（--ink-1..4），不引入第二个彩色。
+ * 失败与中断不用红色（红色是"信号"，不是"错误"），用 --warn（琥珀）。
+ */
+
+/* ------------------------------------------------------------- 内联字体 */
+
+/*
+ * 拉丁展示字与等宽字直接进仓库，不走 CDN：
+ * 桌面应用可能完全离线，而且打包后 file:// 下的外链字体必然加载失败。
+ * 中文交给系统（Noto Sans SC → 思源黑体 → 微软雅黑），完整 CJK 字体动辄 10MB，
+ * 内联进来不划算 —— 中文的排版性格由字号、字重、行高来承担。
+ *
+ * 两个字都是可变字体，所以权重/字宽由 CSS 现调，不需要按字重分别打包。
+ */
+@font-face {
+  font-family: 'Bricolage Grotesque Variable';
+  font-style: normal;
+  font-weight: 200 800;
+  font-stretch: 75% 100%;
+  font-display: swap;
+  src: url('./assets/fonts/bricolage-grotesque-var.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('./assets/fonts/jetbrains-mono-var.woff2') format('woff2-variations');
+}
+
+:root {
+  /* ------------------------------------------------------------ 字体 */
+  /* 展示字：拉丁/数字走 Bricolage，中文落到系统黑体 */
+  --font-display: 'Bricolage Grotesque Variable', 'Noto Sans SC', 'Source Han Sans SC',
+    'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  /* 正文：中文优先，拉丁兜底 */
+  --font-body: 'Noto Sans SC', 'Source Han Sans SC', 'Microsoft YaHei UI', 'Microsoft YaHei',
+    'Segoe UI', sans-serif;
+  /* 数据：编号、信源数、时间戳 —— 等宽才能成列对齐 */
+  --font-data: 'JetBrains Mono Variable', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+
+  /* -------------------------------------------------------- 字阶 1.2 */
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13.5px;
+  --fs-md: 15px;
+  --fs-lg: 17px;
+  --fs-xl: 21px;
+  --fs-2xl: 28px;
+  --fs-rank: 32px;
+
+  /* ------------------------------------------------------------ 间距 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+
+  /* ------------------------------------------------------------ 圆角 */
+  /* 仪器方向：小圆角、明确分级，胶囊只留给标签 */
+  --r-1: 6px;
+  --r-2: 10px;
+  --r-3: 14px;
+  --r-pill: 999px;
+
+  /* ------------------------------------------------------------ 动效 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 140ms;
+  --dur-base: 260ms;
+  --dur-slow: 520ms;
+
+  /* 布局常量：必须和主进程的 TITLEBAR_HEIGHT 逐像素一致 */
+  --titlebar-h: 42px;
+  --sidebar-w: 196px;
+  /* 系统三键占掉的横向空间（Windows 上每键 46px），标题栏内容不能摆进来 */
+  --titlebar-controls-w: 150px;
+
+  /* ================================================== 昼 · 仪器面板 */
+  --bg: #eef0f3;
+  --bg-deep: #e5e9ee;
+  --surface: #ffffff;
+  --surface-2: #f5f6f8;
+  --surface-3: #eaecf0;
+  --ink-1: #14181d;
+  --ink-2: #4b5563;
+  --ink-3: #7c8695;
+  --ink-4: #a9b1bc;
+  --line: #dcdfe5;
+  --line-strong: #c4cad3;
+  --signal: #d92d1c;
+  --signal-deep: #ad2113;
+  --signal-soft: #fbe9e5;
+  --signal-ghost: rgba(217, 45, 28, 0.09);
+  /* 信号红之上的前景色：实底按钮、选中态用。不是"白色"——深色主题下
+     红变亮了，配白字反而糊，得配深底 */
+  --on-signal: #ffffff;
+
+  /*
+   * 重置日历里"最实"那一档格子（已生效）的填充。
+   *
+   * 不能直接拿墨阶来当填充：浅色主题下 --ink-1 是最深的墨，深底反白正是要的；
+   * 深色主题下 --ink-1 反过来成了最亮的白 —— 一个月三四个格子全亮成白块，
+   * 在夜里刺眼得像故障。所以单独立三个语义变量，两种主题各自给值：
+   * 浅色靠"最深的墨"，深色靠"比卡面亮一档 + 一道亮边"。
+   */
+  --cal-fill: #14181d;
+  --cal-fill-ink: #ffffff;
+  --cal-fill-edge: transparent;
+  /*
+   * 主题拨盘上"抬起来的那一块"。和日历格子同一个道理，而且更要紧：
+   * 深色下 --shadow-1 是一层黑色，投在本来就是黑的轨道上等于没投 ——
+   * "抬起来"这件事只能靠**比轨道亮一档 + 一道亮边**说。
+   */
+  --seg-knob: #ffffff;
+  --seg-knob-edge: transparent;
+  --warn: #a06a00;
+  --warn-soft: #fbf1dd;
+  --ok: #1f7a4d;
+  --shadow-1: 0 1px 2px rgba(16, 26, 40, 0.05), 0 2px 8px -4px rgba(16, 26, 40, 0.12);
+  --shadow-2: 0 8px 24px -12px rgba(16, 26, 40, 0.24);
+  --overlay: rgba(18, 26, 36, 0.32);
+  --hover: rgba(20, 24, 29, 0.035);
+
+  color-scheme: light;
+}
+
+/* ================================================== 夜 · 夜海图 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a0e14;
+    --bg-deep: #070a0f;
+    --surface: #111722;
+    --surface-2: #161e2a;
+    --surface-3: #1c2530;
+    --ink-1: #e7ecf3;
+    --ink-2: #9aa6b6;
+    --ink-3: #6b7684;
+    --ink-4: #4a5462;
+    --line: #1e2733;
+    --line-strong: #36424f;
+    --signal: #ff6249;
+    --signal-deep: #ff8570;
+    --signal-soft: rgba(255, 98, 73, 0.14);
+    --signal-ghost: rgba(255, 98, 73, 0.1);
+    --on-signal: #0a0e14;
+    --cal-fill: #242f3d;
+    --cal-fill-ink: #e7ecf3;
+    --cal-fill-edge: #4a5766;
+    --seg-knob: #26313f;
+    --seg-knob-edge: #46525f;
+    --warn: #e5a50a;
+    --warn-soft: rgba(229, 165, 10, 0.13);
+    --ok: #4cc38a;
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 8px -4px rgba(0, 0, 0, 0.5);
+    --shadow-2: 0 10px 28px -12px rgba(0, 0, 0, 0.7);
+    --overlay: rgba(2, 4, 8, 0.6);
+    --hover: rgba(231, 236, 243, 0.04);
+
+    color-scheme: dark;
+  }
+}

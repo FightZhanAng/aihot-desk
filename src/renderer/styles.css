@@ -1,0 +1,4083 @@
+@import './tokens.css';
+
+/*
+ * 布局与组件样式。
+ *
+ * 三条纪律：
+ *   1. 颜色只能来自 tokens.css 的变量，这个文件里不出现任何硬编码色值。
+ *   2. 行是列表的原子单位，所有信息（rank、标题、元数据、信号带）都在同一行里，
+ *      展开详情挂在行下面，不跳页、不弹窗 —— 扫读不被中断。
+ *   3. 动效只用在两处：行展开、刷新进度。其它一律 140ms 的颜色/位移过渡。
+ */
+
+/* ------------------------------------------------------------- 基础 */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink-1);
+  font-family: var(--font-body);
+  font-size: var(--fs-base);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  /* 桌面应用：文本不应被随手选中拖走，但正文内容要可选 */
+  user-select: none;
+  cursor: default;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: var(--r-1);
+}
+
+a {
+  color: var(--signal);
+  text-decoration: none;
+}
+
+::selection {
+  background: var(--signal-ghost);
+}
+
+.mono {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------- 骨架 */
+
+.app {
+  display: grid;
+  grid-template-rows: var(--titlebar-h) 1fr;
+  height: 100%;
+}
+
+.app__body {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  min-height: 0;
+}
+
+/* ------------------------------------------------------------- 标题栏 */
+
+/*
+ * 自绘标题栏：整条可拖动窗口（-webkit-app-region: drag），
+ * 但里面的按钮必须显式声明 no-drag，否则点不动。
+ * 右侧留出系统三键的位置（titleBarOverlay），内容不摆进去。
+ */
+.titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-4) 0 var(--sp-5);
+  padding-right: calc(var(--titlebar-controls-w) + var(--sp-3));
+  -webkit-app-region: drag;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.titlebar__date {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  letter-spacing: 0.02em;
+}
+
+.titlebar__spacer {
+  flex: 1;
+}
+
+.titlebar__updated {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+
+/* 顶部刷新：一枚按下就转的圆形按钮 */
+.refresh {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.03em;
+  transition: border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+
+.refresh:hover {
+  border-color: var(--line-strong);
+  color: var(--ink-1);
+}
+
+.refresh__icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.refresh.is-busy .refresh__icon {
+  animation: spin 900ms linear infinite;
+  color: var(--signal);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 刷新时标题栏底部扫过一条信号红线 —— 唯一允许的"全局动效" */
+.titlebar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--titlebar-h) - 1px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--signal), transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.titlebar.is-busy::after {
+  opacity: 1;
+  animation: scan 1.4s var(--ease-soft) infinite;
+}
+
+@keyframes scan {
+  0% {
+    transform: translateX(-30%) scaleX(0.3);
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateX(30%) scaleX(0.3);
+    opacity: 0.2;
+  }
+}
+
+/* ------------------------------------------------------------- 侧栏 */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: var(--bg);
+  padding: var(--sp-5) var(--sp-3) var(--sp-3);
+  min-height: 0;
+}
+
+/*
+ * 品牌铭牌：像设备面板上印的型号。
+ *
+ * 拉丁部分是等宽字（JetBrains Mono），中文部分回落系统黑体 —— 两种字体
+ * 的字重和字距要分别调，否则「AI 热点」看起来像两个词硬拼在一起。
+ * 中文那两个字给更紧的字距（等宽字的 0.14em 在汉字上会散架）。
+ */
+.brand {
+  padding: 0 var(--sp-2) var(--sp-5);
+}
+
+.brand__mark {
+  font-family: var(--font-data);
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--ink-1);
+  line-height: 1.1;
+}
+
+.brand__mark em {
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--signal);
+}
+
+.brand__sub {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  letter-spacing: 0.34em;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 34px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  font-size: var(--fs-base);
+  transition: background var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+
+.nav__item:hover {
+  background: var(--hover);
+  color: var(--ink-1);
+}
+
+.nav__item.is-active {
+  color: var(--ink-1);
+  font-weight: 600;
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+/* 当前视图的标记：一道信号红竖条，像设备上亮着的档位灯 */
+.nav__item.is-active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--signal);
+}
+
+/*
+ * 档位图标。
+ *
+ * 只做一件事：让眼睛能沿着左侧一列快速找到目标。所以它比文字淡一档、
+ * 选中时也只升到 --ink-2 —— 不变红（红是"这里有信号"的意思，一列图标
+ * 全红就把那句话稀释掉了）。
+ */
+.nav__icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--ink-3);
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+
+.nav__item:hover .nav__icon {
+  color: var(--ink-2);
+}
+
+.nav__item.is-active .nav__icon {
+  color: var(--ink-2);
+}
+
+/*
+ * 档位名里有「Codex 重置监控」这种长的，侧栏只有 156px 内宽。
+ * 宁可省略也不能换行 —— 34px 高的档位条塞两行会把整列节奏打乱。
+ */
+.nav__label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav__count {
+  font-family: var(--font-data);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.nav__item.is-active .nav__count {
+  color: var(--signal);
+}
+
+.sidebar__foot {
+  margin-top: auto;
+  padding: var(--sp-3) var(--sp-2) 0;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* 连接状态灯 */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  min-height: 18px;
+}
+
+.status__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--ink-4);
+}
+
+.status__dot.is-ok {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent);
+}
+
+.status__dot.is-warn {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent);
+}
+
+.status__dot.is-off {
+  background: var(--ink-4);
+}
+
+.status__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  height: 30px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  transition: background var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+
+.icon-btn:hover {
+  background: var(--hover);
+  color: var(--ink-1);
+}
+
+.icon-btn svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+/*
+ * 页脚里的设置：纯文字，不带图标。
+ *
+ * 两条理由，都不只是审美偏好：
+ *   1. **宽度账** —— 侧栏 196px，减掉内边距只剩 156px。图标 + 「设置」
+ *      两个字要 62px，主题拨盘每档就只剩 25px；而拨盘挤到那个尺寸，
+ *      "哪一档亮着"就看不出来了，那是它唯一要传达的信息。
+ *      纯文字 40px，拨盘每档 33px，两边都站得住。
+ *   2. **图标会撞** —— 「设置」最常用的记号是齿轮，齿轮是"一个圆 + 八道短芒"，
+ *      而拨盘里的太阳也是。两者只隔 8px，13px 下并排看像画重了。
+ *      （试过换成调音台推子：三根横杆挤在 16 的框里，14px 下糊成一坨。）
+ *
+ * 更新提示改成角标，不再参与布局 —— 否则"有更新"会让这一行整体重排。
+ */
+.foot__set {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 var(--sp-2);
+  flex: none;
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  transition: background var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+
+.foot__set:hover {
+  background: var(--hover);
+  color: var(--ink-1);
+}
+
+.foot__set .alert-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+/* 主题拨盘 + 设置同一行 */
+.foot__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/*
+ * 主题三档：深色 / 跟随系统 / 浅色。
+ *
+ * 这是全站唯一一处用胶囊外形的地方 —— tokens.css 里写着"胶囊只留给标签"。
+ * 破例的理由：它模仿的是一个实体三档拨盘，圆轨道是这个隐喻的一部分，
+ * 参考里也是这个形状。其余按钮一律还是 --r-1。
+ *
+ * 轨道是**凹下去的一个槽**（--bg-deep + 一道描边），选中的那一档是**抬起来的
+ * 一块**（--surface + 阴影）—— 和侧栏档位、模型榜 pill 是同一套读法。
+ * 两种主题下都不用改：--bg-deep 在两个主题里都比 --bg 更深一档。
+ */
+.themeswitch {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-pill);
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+}
+
+.themeswitch__seg {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  height: 24px;
+  border-radius: var(--r-pill);
+  color: var(--ink-3);
+  transition: background var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+
+.themeswitch__seg:hover {
+  color: var(--ink-1);
+}
+
+.themeswitch__seg.is-on {
+  background: var(--seg-knob);
+  box-shadow: inset 0 0 0 1px var(--seg-knob-edge), var(--shadow-1);
+  color: var(--ink-1);
+}
+
+.themeswitch__seg svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+/* ------------------------------------------------------------- 主区 */
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.main__scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  padding: var(--sp-5) var(--sp-6) var(--sp-6);
+  scrollbar-gutter: stable;
+}
+
+.main__scroll::-webkit-scrollbar {
+  width: 11px;
+}
+
+.main__scroll::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border: 4px solid transparent;
+  border-radius: var(--r-pill);
+  background-clip: content-box;
+}
+
+.main__scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-4);
+  border: 4px solid transparent;
+  background-clip: content-box;
+}
+
+/* 视图头：左标题右数据说明，一行说完 */
+.viewhead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.viewhead__title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink-1);
+}
+
+.viewhead__note {
+  font-family: var(--font-data);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+
+/* 分类过滤 chips */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--sp-4);
+}
+
+.chip {
+  height: 26px;
+  padding: 0 11px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  display: inline-flex;
+  align-items: center;
+  transition: border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft),
+    background var(--dur-fast) var(--ease-soft);
+}
+
+.chip:hover {
+  border-color: var(--line-strong);
+  color: var(--ink-1);
+}
+
+.chip.is-active {
+  background: var(--ink-1);
+  border-color: var(--ink-1);
+  color: var(--bg);
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------- 列表行 */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+
+.row {
+  display: block;
+  width: 100%;
+  border-bottom: 1px solid var(--line);
+  transition: background var(--dur-fast) var(--ease-soft);
+}
+
+.row:hover {
+  background: var(--hover);
+}
+
+.row.is-open {
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  border-bottom-color: transparent;
+}
+
+.row__head {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-3) var(--sp-3) 0;
+  min-height: 62px;
+}
+
+.row--feed .row__head {
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: var(--sp-3);
+}
+
+/* rank：真实的名次，用读数的方式排 —— 等宽、定宽、右对齐 */
+.row__rank {
+  font-family: var(--font-data);
+  font-size: var(--fs-rank);
+  font-weight: 300;
+  line-height: 1;
+  text-align: right;
+  /* 用 --ink-3 而不是更浅的 --ink-4：这是要读的信息，不是水印 */
+  color: var(--ink-3);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  transition: color var(--dur-base) var(--ease-soft);
+}
+
+.row.is-top .row__rank {
+  color: var(--signal);
+  font-weight: 500;
+}
+
+/* 精选行的分类色标：一条 3px 竖线，颜色按分类走 */
+.row__tag {
+  width: 3px;
+  height: 30px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  justify-self: center;
+}
+
+.row__tag[data-cat='ai-models'] {
+  background: var(--signal);
+}
+
+.row__tag[data-cat='ai-products'] {
+  background: var(--ink-2);
+}
+
+.row__tag[data-cat='industry'] {
+  background: var(--warn);
+}
+
+.row__tag[data-cat='paper'] {
+  background: var(--ink-3);
+}
+
+.row__tag[data-cat='tip'] {
+  background: var(--line-strong);
+}
+
+.row__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.row__title {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--ink-1);
+  letter-spacing: -0.005em;
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+
+.row.is-top .row__title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+.row:hover .row__title {
+  color: var(--signal-deep);
+}
+
+.row__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  min-width: 0;
+}
+
+.row__source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 19em;
+}
+
+.row__dot {
+  color: var(--ink-4);
+  flex: none;
+}
+
+.row__tail {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding-right: var(--sp-1);
+}
+
+.row__time {
+  font-family: var(--font-data);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- 信号带 */
+
+/*
+ * 签名元素：8 格信号强度。
+ * 点亮的格子说明"这里有多少人在说"，未点亮的槽始终画出来 ——
+ * 槽本身就是刻度，让 8 格的总量成为可比较的基准。
+ */
+.signal {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 14px;
+  flex: none;
+}
+
+.signal__seg {
+  width: 4px;
+  border-radius: 1px;
+  background: var(--line-strong);
+  transition: background var(--dur-base) var(--ease-soft);
+}
+
+/* 逐级增高，像频谱 —— 即便全是空的，形状本身也说明这是"强度刻度" */
+.signal__seg:nth-child(1) { height: 5px; }
+.signal__seg:nth-child(2) { height: 6px; }
+.signal__seg:nth-child(3) { height: 7px; }
+.signal__seg:nth-child(4) { height: 8px; }
+.signal__seg:nth-child(5) { height: 10px; }
+.signal__seg:nth-child(6) { height: 11px; }
+.signal__seg:nth-child(7) { height: 12px; }
+.signal__seg:nth-child(8) { height: 14px; }
+
+.signal__seg.is-on {
+  background: var(--ink-2);
+}
+
+.signal--strong .signal__seg.is-on {
+  background: var(--signal);
+}
+
+.signal--mid .signal__seg.is-on {
+  background: var(--ink-2);
+}
+
+.signal--weak .signal__seg.is-on {
+  background: var(--ink-3);
+}
+
+/* ------------------------------------------------------------- 展开详情 */
+
+/*
+ * 0fr → 1fr 的 grid 动画：不需要知道内容多高，也不会有 max-height 的截断问题。
+ * 展开时行变成白底卡片，视觉上"这一条被翻开来了"。
+ */
+.row__detail {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-base) var(--ease-out);
+}
+
+.row.is-open .row__detail {
+  grid-template-rows: 1fr;
+}
+
+.row__detail-inner {
+  overflow: hidden;
+  min-height: 0;
+  /*
+   * 收起时必须真的不可见：只靠高度归零的话，里面的文字仍在无障碍树里，
+   * 按钮也还能被 Tab 到。visibility 会一起解决这两件事，
+   * 而它的过渡是离散的，所以收起时延迟到高度动画结束再隐藏。
+   */
+  visibility: hidden;
+  transition: visibility 0s linear var(--dur-base);
+}
+
+.row.is-open .row__detail-inner {
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.row__detail-pad {
+  padding: 0 var(--sp-4) var(--sp-4) 68px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.row--feed .row__detail-pad {
+  padding-left: var(--sp-4);
+}
+
+.detail__summary {
+  margin: 0;
+  font-size: var(--fs-base);
+  line-height: 1.75;
+  color: var(--ink-2);
+  user-select: text;
+  max-width: 72ch;
+}
+
+/* 编辑荐语：引一句 AIHOT 编辑的推荐理由，用左侧信号红细线标出来 */
+.detail__reason {
+  margin: 0;
+  padding: 6px 0 6px 12px;
+  border-left: 2px solid var(--signal);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--ink-2);
+  user-select: text;
+  max-width: 72ch;
+}
+
+.detail__reason b {
+  color: var(--ink-1);
+  font-weight: 600;
+}
+
+/* 传播计量：信源数、信号数、参与者数 —— 一排读数 */
+.detail__stats {
+  display: flex;
+  gap: var(--sp-5);
+}
+
+.detail__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.detail__stat dt {
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+  letter-spacing: 0.12em;
+}
+
+.detail__stat dd {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--fs-lg);
+  font-weight: 500;
+  color: var(--ink-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.detail__sources {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  line-height: 1.9;
+  user-select: text;
+}
+
+.detail__actions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-1);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  transition: border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft),
+    background var(--dur-fast) var(--ease-soft);
+}
+
+.btn:hover {
+  border-color: var(--line-strong);
+  color: var(--ink-1);
+}
+
+.btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.btn--primary {
+  background: var(--ink-1);
+  border-color: var(--ink-1);
+  color: var(--bg);
+}
+
+.btn--primary:hover {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: #fff;
+}
+
+/* ------------------------------------------------------------- 状态页 */
+
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: var(--sp-7) var(--sp-4);
+  text-align: center;
+  color: var(--ink-3);
+  min-height: 300px;
+}
+
+.state__title {
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.state__desc {
+  font-size: var(--fs-sm);
+  max-width: 44ch;
+  line-height: 1.7;
+}
+
+/* 加载态：三格信号在跳，和信号带同一个视觉语言 */
+.state__pulse {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 22px;
+}
+
+.state__pulse i {
+  width: 5px;
+  border-radius: 1px;
+  background: var(--ink-4);
+  animation: pulse 1.1s var(--ease-soft) infinite;
+}
+
+.state__pulse i:nth-child(1) { height: 8px; animation-delay: 0ms; }
+.state__pulse i:nth-child(2) { height: 14px; animation-delay: 130ms; }
+.state__pulse i:nth-child(3) { height: 20px; animation-delay: 260ms; }
+.state__pulse i:nth-child(4) { height: 14px; animation-delay: 390ms; }
+.state__pulse i:nth-child(5) { height: 8px; animation-delay: 520ms; }
+
+@keyframes pulse {
+  0%, 100% {
+    background: var(--ink-4);
+    transform: scaleY(0.72);
+  }
+  40% {
+    background: var(--signal);
+    transform: scaleY(1);
+  }
+}
+
+/* 错误提示条：琥珀色，不是红色 —— 红色是"信号"，不承担"错误"语义 */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-4);
+  border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent);
+  background: var(--warn-soft);
+  border-radius: var(--r-2);
+  font-size: var(--fs-sm);
+  color: var(--ink-1);
+}
+
+.banner__icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--warn);
+}
+
+.banner__text {
+  flex: 1;
+}
+
+/* 列表项入场：只在首屏做一次，之后刷新不做动画，避免闪烁 */
+.list.is-fresh .row {
+  animation: rise var(--dur-slow) var(--ease-out) both;
+}
+
+.list.is-fresh .row:nth-child(1) { animation-delay: 0ms; }
+.list.is-fresh .row:nth-child(2) { animation-delay: 34ms; }
+.list.is-fresh .row:nth-child(3) { animation-delay: 68ms; }
+.list.is-fresh .row:nth-child(4) { animation-delay: 102ms; }
+.list.is-fresh .row:nth-child(5) { animation-delay: 136ms; }
+.list.is-fresh .row:nth-child(6) { animation-delay: 170ms; }
+.list.is-fresh .row:nth-child(n + 7) { animation-delay: 200ms; }
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------------- 设置抽屉 */
+
+.drawer__scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-base) var(--ease-soft);
+  z-index: 40;
+}
+
+.drawer__scrim.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.drawer {
+  position: fixed;
+  top: var(--titlebar-h);
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-2);
+  transform: translateX(100%);
+  transition: transform var(--dur-base) var(--ease-out);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer.is-open {
+  transform: none;
+}
+
+.drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.drawer__title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.drawer__body {
+  padding: var(--sp-4);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.field__label {
+  font-size: var(--fs-xs);
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+}
+
+.seg {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.seg__btn {
+  flex: 1;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  border-right: 1px solid var(--line);
+  transition: background var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+
+.seg__btn:last-child {
+  border-right: none;
+}
+
+.seg__btn:hover {
+  color: var(--ink-1);
+}
+
+.seg__btn.is-active {
+  background: var(--surface);
+  color: var(--ink-1);
+  font-weight: 600;
+  box-shadow: var(--shadow-1);
+}
+
+.field__hint {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  line-height: 1.6;
+}
+
+.switchrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: var(--r-pill);
+  background: var(--line-strong);
+  transition: background var(--dur-fast) var(--ease-soft);
+  flex: none;
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.switch.is-on {
+  background: var(--signal);
+}
+
+.switch.is-on::after {
+  transform: translateX(16px);
+}
+
+/* 更新区：一块独立的小面板，版本号是读数、其它都是它的注脚 */
+.updater {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+}
+
+.updater__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.updater__version {
+  font-family: var(--font-data);
+  font-size: var(--fs-md);
+  color: var(--ink-1);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.updater__status {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+
+/* 有新版或已就绪：这句话是信号，用信号红 */
+.updater__status.is-alert {
+  color: var(--signal);
+  font-weight: 500;
+}
+
+.updater__bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.updater__bar i {
+  display: block;
+  height: 100%;
+  background: var(--signal);
+  transition: width var(--dur-base) var(--ease-soft);
+}
+
+.updater__notes {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  line-height: 1.6;
+  max-height: 96px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.updater__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+/* 设置按钮上的更新提示点 */
+.alert-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--signal);
+  flex: none;
+  box-shadow: 0 0 0 3px var(--signal-ghost);
+}
+
+.about {
+  border-top: 1px solid var(--line);
+  padding-top: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.about__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.about__row span:last-child {
+  font-family: var(--font-data);
+  color: var(--ink-2);
+  user-select: text;
+}
+
+.about a {
+  width: fit-content;
+}
+
+/* 页脚：数据来源声明 —— 用 AIHOT 的数据，出处要说清楚 */
+.foot {
+  margin-top: var(--sp-6);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.foot__link {
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+
+.foot__link:hover {
+  color: var(--signal);
+  text-decoration-color: var(--signal);
+}
+
+/* ================================================================ 收藏按钮 */
+
+/*
+ * 已收藏用信号红 —— 它是用户自己按下的标记，和"这里有信号"是同一种
+ * "值得看一眼"的语义，不引入第二种颜色。空心的书签是未收藏，形状不变。
+ */
+.savebtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-1);
+  border: 1px solid transparent;
+  color: var(--ink-4);
+  background: transparent;
+  transition: color var(--dur-fast) var(--ease-soft), background var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
+}
+
+.savebtn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.savebtn:hover {
+  color: var(--ink-1);
+  background: var(--surface-3);
+}
+
+.savebtn.is-on {
+  color: var(--signal);
+}
+
+.savebtn.is-on:hover {
+  color: var(--signal-deep);
+  background: var(--signal-ghost);
+}
+
+/* 详情页里的带文字版本 */
+.savebtn--label {
+  width: auto;
+  height: 28px;
+  padding: 0 11px;
+  border-color: var(--line);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.savebtn--label:hover {
+  border-color: var(--line-strong);
+}
+
+.savebtn--label.is-on {
+  border-color: var(--signal);
+  background: var(--signal-ghost);
+}
+
+/* ================================================================ 搜索框 */
+
+.searchbox {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 34px;
+  padding: 0 var(--sp-3);
+  margin-bottom: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  transition: border-color var(--dur-fast) var(--ease-soft);
+}
+
+.searchbox:focus-within {
+  border-color: var(--line-strong);
+}
+
+.searchbox__icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--ink-4);
+}
+
+.searchbox__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink-1);
+  font-family: var(--font-body);
+  font-size: var(--fs-base);
+}
+
+.searchbox__input::placeholder {
+  color: var(--ink-4);
+}
+
+.searchbox__input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.searchbox__clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-1);
+  color: var(--ink-4);
+}
+
+.searchbox__clear svg {
+  width: 12px;
+  height: 12px;
+}
+
+.searchbox__clear:hover {
+  color: var(--ink-1);
+  background: var(--surface-3);
+}
+
+/* ================================================================ chips 扩展 */
+
+.chips__divider {
+  align-self: center;
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--line);
+}
+
+.chip--light {
+  height: 24px;
+  background: transparent;
+}
+
+.chip__num {
+  margin-left: 5px;
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+.chip.is-active .chip__num {
+  color: var(--bg);
+  opacity: 0.75;
+}
+
+.chip--danger {
+  gap: 4px;
+  color: var(--signal);
+  border-color: var(--signal);
+  background: var(--signal-ghost);
+}
+
+.chip--danger svg {
+  width: 12px;
+  height: 12px;
+}
+
+.chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chip:disabled:hover {
+  border-color: var(--line);
+  color: var(--ink-2);
+}
+
+/* 期号条：横向滚动而不是换行 —— 日报有 30 期，换行会吃掉半屏 */
+.chips--periods {
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.chips--periods::-webkit-scrollbar {
+  height: 4px;
+}
+
+.chips--periods::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 2px;
+}
+
+.chip--period {
+  flex: none;
+  height: 24px;
+  padding: 0 9px;
+  font-family: var(--font-data);
+  font-size: var(--fs-xs);
+}
+
+/* ================================================================ 通用小块 */
+
+.backbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 26px;
+  padding: 0 10px 0 5px;
+  margin-bottom: var(--sp-3);
+  border-radius: var(--r-pill);
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+  transition: color var(--dur-fast) var(--ease-soft), background var(--dur-fast) var(--ease-soft);
+}
+
+.backbtn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.backbtn:hover {
+  color: var(--ink-1);
+  background: var(--surface-3);
+}
+
+.linkish {
+  color: var(--ink-2);
+  font-size: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+}
+
+.linkish:hover {
+  color: var(--ink-1);
+}
+
+/* 更新日志那一档：它不是资讯，用一条线和其他档位分开 */
+.nav__item--soft {
+  margin-top: var(--sp-4);
+}
+
+.nav__item--soft::after {
+  content: '';
+  position: absolute;
+  left: var(--sp-2);
+  right: var(--sp-2);
+  top: calc(-1 * var(--sp-4) / 2);
+  height: 1px;
+  background: var(--line);
+}
+
+/* ================================================================ 事件页 */
+
+.story {
+  max-width: 760px;
+}
+
+.story__head {
+  margin-bottom: var(--sp-5);
+}
+
+.story__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--sp-2);
+  font-family: var(--font-data);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.story__status {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.04em;
+}
+
+.story__status.is-live {
+  color: var(--signal);
+  background: var(--signal-ghost);
+}
+
+.story__status.is-idle {
+  color: var(--ink-3);
+  background: var(--surface-3);
+}
+
+.story__title {
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  line-height: 1.28;
+  letter-spacing: -0.015em;
+  color: var(--ink-1);
+}
+
+.story__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.story__times {
+  font-family: var(--font-data);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.story__block {
+  margin-bottom: var(--sp-6);
+}
+
+.story__label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+
+.story__label-num {
+  font-family: var(--font-data);
+  font-weight: 400;
+  color: var(--ink-4);
+}
+
+/* 最新进展：整页唯一一道信号红的竖线，标出"现在到哪了" */
+.story__block--latest {
+  padding: var(--sp-4) var(--sp-4) var(--sp-4) var(--sp-5);
+  border-radius: 0 var(--r-2) var(--r-2) 0;
+  border-left: 2px solid var(--signal);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.story__latest {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  line-height: 1.75;
+  color: var(--ink-1);
+}
+
+.story__para {
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-md);
+  line-height: 1.9;
+  color: var(--ink-2);
+  max-width: 52em;
+}
+
+.story__byline {
+  margin-top: var(--sp-3);
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+  letter-spacing: 0.04em;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline__item {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: var(--sp-4);
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.timeline__item:last-child {
+  border-bottom: 0;
+}
+
+.timeline__time {
+  padding-top: 2px;
+  font-family: var(--font-data);
+  font-size: var(--fs-xs);
+  color: var(--ink-4);
+  white-space: nowrap;
+}
+
+.timeline__body {
+  min-width: 0;
+}
+
+.timeline__title {
+  display: block;
+  text-align: left;
+  font-size: var(--fs-base);
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--ink-1);
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+
+.timeline__title:hover {
+  color: var(--signal);
+}
+
+.timeline__summary {
+  margin-top: 5px;
+  font-size: var(--fs-sm);
+  line-height: 1.72;
+  color: var(--ink-3);
+  max-width: 52em;
+}
+
+.timeline__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-top: 4px;
+}
+
+.timeline__source {
+  font-size: var(--fs-xs);
+  color: var(--ink-4);
+}
+
+.related {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.related__item {
+  padding: 10px var(--sp-3);
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+  transition: border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+
+.related__item:hover {
+  border-color: var(--line-strong);
+  color: var(--ink-1);
+}
+
+/* ================================================================ 报告 · 报纸版式 */
+
+/*
+ * 三个档位（日报 / 周报 / 月报）共用这一套三栏骨架，各栏答一个问题：
+ *   往期 —— 还有哪些期可以看（日报按月折叠，上百期不折翻不动；周报月报直接铺开）
+ *   正文 —— 这一期里有什么（刊头 / 统计行 / 导读 / 头条 / 分栏）
+ *   右栏 —— 这一期的目录（各栏目头条 + 本期版面带条数）
+ *
+ * 右栏的两块都是从数据里算出来的，不是抄站上的 —— 开放接口没有编辑挑的
+ * 「今日看点」，所以这里不冒充它，见 ReportView.tsx。
+ *
+ * 860px 的可用宽度分三栏：168 + 1fr + 188，正文拿到 468px —— 一行约 24 个
+ * 汉字，是报纸正文的密度；再窄头条就得频繁折行。
+ */
+.paper {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr) 188px;
+  gap: 18px;
+  align-items: start;
+}
+
+/* ---------------------------------------------------------- 左：往期合订 */
+
+.paper__archive {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 200px);
+}
+
+.paper__archive-head {
+  padding-bottom: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--ink-4);
+}
+
+.paper__archive-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.paper__archive-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.paper__archive-list::-webkit-scrollbar-thumb {
+  border-radius: var(--r-pill);
+  background: var(--line-strong);
+}
+
+.paper__month + .paper__month {
+  margin-top: var(--sp-1);
+}
+
+/* 月份行：折叠开关 + 这个月出了几期。压成一条，不抢往期的注意力 */
+.paper__month-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  width: 100%;
+  padding: 5px 4px;
+  border-radius: var(--r-1);
+  color: var(--ink-3);
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+
+.paper__month-head:hover {
+  background: var(--hover);
+}
+
+.paper__caret {
+  width: 10px;
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+.paper__month-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.paper__month-count {
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+.paper__issues {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * 一期一行：日期读数 + 头条标题（两行截断）。
+ * 标题比日期重要，但日期才是"期号"——所以日期给等宽字，读成一条刻度。
+ */
+.paper__issue {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 4px 5px 14px;
+  border-radius: var(--r-1);
+  transition:
+    background-color var(--dur-fast) var(--ease-soft),
+    color var(--dur-fast) var(--ease-soft);
+}
+
+.paper__issue:hover {
+  background: var(--hover);
+}
+
+.paper__issue.is-active {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.paper__issue-day {
+  flex: none;
+  width: 16px;
+  font-family: var(--font-data);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ink-3);
+  text-align: right;
+}
+
+.paper__issue.is-active .paper__issue-day {
+  color: var(--signal);
+}
+
+.paper__issue-title {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.paper__issue.is-active .paper__issue-title {
+  color: var(--ink-1);
+}
+
+.paper__archive-foot {
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+
+.paper__archive-foot:hover {
+  color: var(--signal);
+}
+
+/* ---------------------------------------------------------- 中：报头与正文 */
+
+.paper__body {
+  min-width: 0;
+}
+
+/* 报头：左边是刊名，右边是日期牌。底下压一条双线，报纸的规矩 */
+.paper__masthead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-3);
+  border-bottom: 3px double var(--line-strong);
+}
+
+.paper__wordmark {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--ink-1);
+}
+
+/* 「日报」两个字用中文黑体，和拉丁刊名拉开气质 */
+.paper__wordmark-cn {
+  margin-left: 6px;
+  font-family: var(--font-body);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* 刊名下面那行出处。字距比拉丁小 —— 中文吃到 0.16em 就散架了 */
+.paper__brand-sub {
+  margin-top: 6px;
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.06em;
+  color: var(--ink-4);
+}
+
+/* 日期牌：日期大字 + 本月的发行点阵 */
+.stamp {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
+.stamp__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 10px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  /* 印章的质感：不填色，靠一道内框 */
+  box-shadow: inset 0 0 0 3px var(--surface);
+  background: var(--surface-2);
+}
+
+.stamp__month {
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+
+.stamp__day {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  color: var(--ink-1);
+}
+
+.stamp__year,
+.stamp__weekday {
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+}
+
+.stamp__side {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.stamp__count {
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+}
+
+/* 发行点阵：本月哪几天出了报，一眼看完 */
+.stamp__mini {
+  display: grid;
+  grid-template-columns: repeat(7, 8px);
+  gap: 2px;
+}
+
+.stamp__wk {
+  font-size: 8px;
+  line-height: 8px;
+  color: var(--ink-4);
+  text-align: center;
+}
+
+.stamp__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--surface-3);
+}
+
+.stamp__dot.is-on {
+  background: var(--ink-3);
+}
+
+.stamp__dot.is-current {
+  box-shadow: 0 0 0 1.5px var(--signal);
+}
+
+/* 统计行：三个读数 + 一句读完要多久。像报纸页眉下的小字 */
+.paper__stats {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-4);
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.paper__stat {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.paper__stat-value {
+  font-family: var(--font-data);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.paper__stat-unit {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.paper__read {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+/* 头条：整页唯一给到信号红的地方 —— 它就是"今天最该先看的" */
+.paper__front {
+  padding: var(--sp-4) 0 var(--sp-5);
+}
+
+.paper__lead-title {
+  margin: 0 0 var(--sp-2);
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.34;
+  letter-spacing: -0.02em;
+  color: var(--ink-1);
+  user-select: text;
+}
+
+.paper__lead-body {
+  margin: 0;
+  font-size: var(--fs-base);
+  line-height: 1.86;
+  color: var(--ink-2);
+  user-select: text;
+}
+
+.paper__lead-foot {
+  margin-top: var(--sp-3);
+}
+
+.paper__lead-source {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line-strong);
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
+}
+
+.paper__lead-source:hover {
+  color: var(--signal);
+  border-color: var(--signal);
+}
+
+/* 分栏标尺：短标签 + 一条拉到头的细线 + 条数 */
+.paper__rule {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+/* 线要比正文的分隔线深一档 —— 它是"分栏"，不是"分隔"，得看得见 */
+.paper__rule::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line-strong);
+}
+
+.paper__rule-label {
+  flex: none;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-1);
+}
+
+.paper__rule-label.is-lead {
+  padding: 1px 7px;
+  border-radius: var(--r-1);
+  background: var(--signal);
+  color: var(--on-signal);
+}
+
+.paper__rule-count {
+  flex: none;
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+.paper__section {
+  padding-bottom: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+/* 一条：标题 + 信源（+ 半句摘要）。收藏钉在右侧 */
+.paper__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.paper__item:last-child {
+  border-bottom: none;
+}
+
+.paper__item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.paper__item-title {
+  font-size: var(--fs-base);
+  font-weight: 500;
+  line-height: 1.56;
+  color: var(--ink-1);
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+
+.paper__item-main:hover .paper__item-title {
+  color: var(--signal);
+}
+
+.paper__item-meta {
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+.paper__item > .savebtn {
+  margin-top: 4px;
+}
+
+/* 快讯：时间在前，像电传机吐出来的条 */
+.paper__flash {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 1px 0;
+}
+
+.paper__flash-time {
+  flex: none;
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+.paper__flash-title {
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--ink-2);
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+
+.paper__flash:hover .paper__flash-title {
+  color: var(--signal);
+}
+
+/* ---------------------------------------------------------- 右：目录 */
+
+.paper__aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding-left: var(--sp-4);
+  border-left: 1px solid var(--line);
+}
+
+.paper__box {
+  min-width: 0;
+}
+
+.paper__picks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: pick;
+}
+
+.paper__pick + .paper__pick {
+  margin-top: var(--sp-2);
+}
+
+.paper__pick-main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  width: 100%;
+}
+
+/* 编号：等宽、定宽、右对齐 —— 和榜单的读法一致 */
+.paper__pick-rank {
+  flex: none;
+  width: 14px;
+  padding-top: 1px;
+  font-family: var(--font-data);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ink-4);
+  text-align: right;
+}
+
+.paper__pick-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.paper__pick-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.52;
+  color: var(--ink-1);
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+
+.paper__pick-main:hover .paper__pick-title {
+  color: var(--signal);
+}
+
+/*
+ * 出处名可以很长（"Google DeepMind：Blog（RSS）"），而三栏的宽度是按
+ * 168 / 1fr / 188 定死的 —— 谁都不许把它顶宽。
+ *
+ * 试过 overflow-wrap: anywhere，管不住：浏览器按 UAX#14 的断行规则排这一串时
+ * 认为它一行放得下（10px 下排出来 152px，容器 149px），而 anywhere 只在
+ * "整段放不下"时才逐字断 —— 差 3px 的这种情况它不动手，结果右栏被撑出
+ * 一条横向滚动条。所以这里给它一个明确的约束：一行，放不下就省略号。
+ * 出处名本来就是次要信息，省掉尾巴比挤坏整个版心划算。
+ */
+.paper__pick-source {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+}
+
+.paper__toc-name {
+  overflow-wrap: anywhere;
+}
+
+/* 本期栏目：编号 + 名字 + 条数，读成一份目录 */
+.paper__toc {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.paper__toc-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 4px 0;
+  border-bottom: 1px dotted var(--line);
+}
+
+.paper__toc-row:last-child {
+  border-bottom: none;
+}
+
+.paper__toc-rank {
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+.paper__toc-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+}
+
+.paper__toc-count {
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+}
+
+/* ---------------------------------------------------------- 周报 / 月报：册页 */
+
+/*
+ * 三栏骨架和日报共用，这里只补"刊物"才有的零件：眉题（第几周 / 哪个月）、
+ * 刊名下的刊性说明、期号徽记、本期导读、分栏综述、版本记录。
+ *
+ * 报头不去和日报对齐高度 —— 日报右边是两行的日期牌，这里右边是四行的期号徽记，
+ * 硬压成一样高只会把字挤扁。
+ */
+
+.paper__brand {
+  min-width: 0;
+}
+
+/* 册页的报头比日报高一点 —— 右边是四行的期号徽记，硬压成一样高只会把字挤扁 */
+.paper__masthead--fascicle {
+  padding-bottom: var(--sp-4);
+}
+
+.paper__rubric {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--ink-3);
+}
+
+/* 刊名下面那行：这一刊是什么、多久出一次 */
+.paper__kick {
+  margin-top: 5px;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+/* ---------------------------------------------------------- 期号徽记 */
+
+/*
+ * 站上这个位置是一张 16:9 配图，拿不到（见 ReportView 里的说明），
+ * 换成一个印章式的方牌：第几期 / 大字周次 / 全年几期 / 当年的发行刻度。
+ * 和本期日期牌是同一套做法 —— 用真实数据本身当装饰。
+ */
+.board {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
+.board__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 12px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  /* 印章的质感：不填色，靠一道内框 */
+  box-shadow: inset 0 0 0 3px var(--surface);
+  background: var(--surface-2);
+}
+
+.board__no {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--signal);
+}
+
+.board__big {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+  color: var(--ink-1);
+}
+
+.board__unit,
+.board__period {
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+}
+
+.board__period {
+  font-family: var(--font-data);
+  letter-spacing: 0.02em;
+}
+
+.board__side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 3px;
+}
+
+.board__year {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+}
+
+.board__total {
+  font-family: var(--font-data);
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--ink-4);
+}
+
+/* 一年出多少期就画多少个点，5 个一行 */
+.board__ticks {
+  display: grid;
+  grid-template-columns: repeat(5, 7px);
+  gap: 3px;
+}
+
+.board__tick {
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: var(--surface-3);
+}
+
+.board__tick.is-past {
+  background: var(--ink-4);
+}
+
+/* 当前这一期是全页唯一的红点 —— 和"今天在哪一天"用的是同一个信号 */
+.board__tick.is-current {
+  background: var(--signal);
+}
+
+/* ---------------------------------------------------------- 导读与分栏综述 */
+
+/* 本期导读：编辑给整期写的那段引子。比正文略大，压在头条上面 */
+.paper__preface {
+  padding: var(--sp-4) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.paper__preface-body {
+  margin: 0;
+  font-size: var(--fs-base);
+  line-height: 1.9;
+  color: var(--ink-2);
+  user-select: text;
+}
+
+/* 分栏综述：挂在分栏标尺下面，用左边一道竖线表示"这段是概括，不是条目" */
+.paper__section-note {
+  margin: 0 0 var(--sp-3);
+  padding-left: var(--sp-3);
+  border-left: 2px solid var(--line-strong);
+  font-size: var(--fs-sm);
+  line-height: 1.78;
+  color: var(--ink-2);
+  user-select: text;
+}
+
+/* 版本记录：这一期从哪儿来、什么时候生成的。报纸末页那种小字 */
+.paper__colophon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-3);
+  border-top: 3px double var(--line-strong);
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+/* ---------------------------------------------------------- 册页的往期行 */
+
+/*
+ * 周报月报的一行是三段：期号数字在左，右边两行 —— 上行「从哪天起」，下行标题。
+ * 日报那版只有数字 + 标题两列，这里的量多一段，所以另起一套网格。
+ */
+.paper__issue--fascicle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 6px;
+  padding: 4px;
+}
+
+.paper__issue--fascicle .paper__issue-day {
+  width: auto;
+  min-width: 18px;
+}
+
+.paper__issue--fascicle .paper__issue-title {
+  grid-column: 2;
+}
+
+.paper__issue-when {
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+.paper__issue.is-active .paper__issue-when {
+  color: var(--ink-3);
+}
+
+/* ================================================================ Codex 重置 */
+
+/*
+ * 这条线最要紧的一件事：**"说了要发"和"确实发了"必须一眼能分开**。
+ * 所以整页只有一套记号语言 —— 四档状态（已生效 / 时间未明确 / 应已生效 /
+ * 等待生效），日历格子的底色、图例的圆点、日志卡片的左竖条，用的都是它。
+ *
+ * 状态不用颜色区分，用**墨的深浅**：最实的一档是深底反白（像盖了章），
+ * 最虚的一档是空框虚线。颜色只有信号红一个，留给"今天在看哪一天"。
+ * 理由：日历上一个月有十来个有记录的日子，全上彩色会糊成背景噪音，
+ * 而"实不实"本身就是深浅的隐喻，不需要第二个颜色。
+ *
+ * 版式：顶上一排读数，下面两栏 —— 左边回答"什么时候、接下来还有没有"，
+ * 右边回答"具体哪天几点、原话怎么说的"。
+ */
+
+/* ---------------------------------------------------------- 顶部四格读数 */
+
+/*
+ * 四格连成一排，靠 1px 的缝露出底色当分隔线 —— 比给每格画边框干净，
+ * 转角处也不会出现双线。
+ */
+.cxstats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-bottom: var(--sp-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.cxstat {
+  padding: 11px var(--sp-4) 12px;
+  background: var(--surface);
+}
+
+.cxstat__label {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+/* 读数是主角：等宽字（数字不会跳），18px 比正文大一档 */
+.cxstat__value {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-data);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink-1);
+}
+
+.cxstat__unit {
+  margin-left: 3px;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+/* ---------------------------------------------------------- 两栏 */
+
+/*
+ * 左栏 380px 是算出来的，不是拍的：卡片内宽 356px、7 列 gap 3px，
+ * 每格 48.3px —— 放得下「重置卡 +1」（3 个汉字 + 一格空格 + 加号数字）。
+ * 再窄一档徽标就要出现省略号，日历上一排省略号是最难看的。
+ */
+.cxbody {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: var(--sp-5);
+  align-items: start;
+}
+
+/* ---------------------------------------------------------- 左：重置日历 */
+
+/* 标题和那句说明并成一行 —— 一年 12 个月、月月都翻同一张日历，
+   说明只用读一次，不值得单占一行（省下的 24px 给格子） */
+.cxcal__intro {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-bottom: 10px;
+}
+
+.cxcal__heading {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink-1);
+}
+
+.cxcal__desc {
+  margin: 2px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.cxcal__card {
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+
+/* 月份 + 三个动作。动作都是文字链接，不做成按钮 —— 日历本身才是主角 */
+.cxcal__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: 2px;
+}
+
+.cxcal__month {
+  font-family: var(--font-data);
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.cxcal__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.cxcal__link {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+
+.cxcal__link:hover {
+  color: var(--signal);
+}
+
+.cxcal__link:disabled {
+  color: var(--ink-4);
+  cursor: default;
+}
+
+.cxcal__link:disabled:hover {
+  color: var(--ink-4);
+}
+
+.cxcal__step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-1);
+  font-size: var(--fs-base);
+  line-height: 1;
+  color: var(--ink-2);
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+
+.cxcal__step:hover {
+  background: var(--hover);
+}
+
+.cxcal__sub {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+}
+
+.cxcal__sub b {
+  font-family: var(--font-data);
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.cxcal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  /*
+   * 46px 是"日期数字 + 一个徽标"的高度，留了 5px 余量：
+   *   4 + 16（数字） + 3 + 15（徽标） + 3 = 41px
+   * 一天有两种事件时这行自己会长到 58px，同一行所有格子跟着等高。
+   * 一个月 6 行 × 46 = 276px —— 再高就把下面那排图例挤出屏幕了。
+   */
+  grid-auto-rows: minmax(46px, auto);
+  gap: 3px;
+}
+
+.cxcal__wd {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+/* ---------------------------------------------------------- 日期格 */
+
+.cxcell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* min-width 必须有：flex 列的默认最小宽度是内容宽度，徽标长了会把格子顶宽 */
+  min-width: 0;
+  gap: 3px;
+  padding: 4px 2px 3px;
+  border: 1px solid transparent;
+  border-radius: var(--r-1);
+  text-align: center;
+}
+
+/* 没记录的日子只是一张日期纸，不给它按钮的手感 */
+.cxcell.is-blank {
+  visibility: hidden;
+}
+
+.cxcell__num {
+  font-family: var(--font-data);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--ink-3);
+}
+
+/* 今天：一道信号红的环，标出"你在这里"。
+   只加粗数字、不动颜色 —— 今天要是有记录，颜色得听状态的（否则深底格子
+   会被这条改成深字，直接读不出来） */
+.cxcell.is-today {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+
+.cxcell.is-today .cxcell__num {
+  font-weight: 700;
+}
+
+/* 有记录：四档深浅。实 → 虚：深底反白 / 灰底 / 浅底虚线 / 空框虚线 */
+.cxcell.is-marked {
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
+}
+
+.cxcell.is-confirmed {
+  background: var(--cal-fill);
+  border-color: var(--cal-fill-edge);
+  color: var(--cal-fill-ink);
+}
+
+.cxcell.is-confirmed .cxcell__num {
+  color: var(--cal-fill-ink);
+}
+
+.cxcell.is-likely {
+  background: var(--surface-3);
+  border-color: var(--line-strong);
+}
+
+.cxcell.is-likely .cxcell__num {
+  color: var(--ink-1);
+}
+
+.cxcell.is-due {
+  background: var(--surface-2);
+  border-style: dashed;
+  border-color: var(--line-strong);
+}
+
+.cxcell.is-due .cxcell__num {
+  color: var(--ink-2);
+}
+
+.cxcell.is-waiting {
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--line);
+}
+
+.cxcell.is-marked:hover {
+  border-color: var(--ink-3);
+}
+
+/*
+ * 选中：整格翻成信号红。一屏最多一个，这是它该有的分量。
+ *
+ * 这条必须排在四档**之后** —— 特异性和 .is-confirmed 一样（都是两个类），
+ * 先写就会被深底那档盖掉，点了日期看不出是哪个（第一版就是这么错的）。
+ */
+.cxcell.is-picked,
+.cxcell.is-picked:hover {
+  background: var(--signal);
+  border-style: solid;
+  border-color: var(--signal);
+  outline: none;
+}
+
+.cxcell.is-picked .cxcell__num,
+.cxcell.is-picked .cxbadge {
+  color: var(--on-signal);
+}
+
+/*
+ * 徽标组。
+ *
+ * 这一层不能省：`.cxbadge` 是 span，默认 inline —— 而 max-width 对
+ * inline 元素无效，徽标会按内容宽度撑出去、盖到隔壁格子上（第一版就
+ * 是这么溢出的，visually 像"格子被撑破了"）。给它一个 flex 列的父级，
+ * 徽标才是块级，宽度才收得住。
+ */
+.cxcell__badges {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* 徽标：底用 currentColor 的半透明版，跟着格子前景走 —— 深底上是浅底白字，
+   浅底上是深字浅底，不用为四档各写一套 */
+.cxbadge {
+  /* block 才能让 ellipsis 生效（inline 元素上 overflow 是空操作） */
+  display: block;
+  max-width: 100%;
+  padding: 0 4px;
+  border-radius: var(--r-1);
+  background: color-mix(in srgb, currentColor 15%, transparent);
+  color: var(--ink-2);
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 两种事件在格子里也要能分开：重置卡那枚整体压淡一档，
+   和"额度重置"并排时不至于读成同一件事 */
+.cxcell.is-confirmed .cxbadge {
+  color: var(--cal-fill-ink);
+}
+
+.cxbadge.is-credit {
+  color: var(--ink-3);
+}
+
+.cxcell.is-confirmed .cxbadge.is-credit {
+  color: color-mix(in srgb, var(--cal-fill-ink) 74%, transparent);
+}
+
+/* ---------------------------------------------------------- 四态图例 */
+
+.cxcal__legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 10px;
+  margin: 10px 0 0;
+  padding: 9px 0 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+.cxcal__legend-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.cxcal__legend-text {
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.cxcal__legend-hint {
+  display: block;
+  color: var(--ink-3);
+}
+
+/*
+ * 图例的点，和格子的四档一一对应：实黑 / 实灰 / 空心 / 虚线。
+ * 靠"填充程度"表达"实不实"，不引入第二个颜色 —— 和格子是同一套语言。
+ */
+.cxdot {
+  flex: none;
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  margin-top: 2px;
+  border-radius: 50%;
+}
+
+.cxdot.is-confirmed {
+  background: var(--ink-1);
+}
+
+.cxdot.is-likely {
+  background: var(--ink-4);
+}
+
+.cxdot.is-due {
+  border: 1.5px solid var(--ink-4);
+}
+
+.cxdot.is-waiting {
+  border: 1.5px dashed var(--line-strong);
+}
+
+/* ---------------------------------------------------------- 右：日志合订本 */
+
+.cxlog__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.cxlog__heading {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink-1);
+}
+
+/* 焦点状态 + 回全部的出口，并成一组放在标题右侧 */
+.cxlog__tools {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+}
+
+.cxlog__focus {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.cxlog__clear {
+  font-size: var(--fs-xs);
+  color: var(--signal);
+}
+
+/*
+ * 焦点那天没有记录时的空态。
+ *
+ * 这里必须给东西 —— 右边空一块会让人以为页面坏了；而"默认停在今天、
+ * 今天多半还没记录"又是这个页面最常见的状态，所以它不是边角情况，是主路径。
+ * 一句话说清为什么是空的，再给一条去最近一次记录的近路。
+ */
+.cxlog__empty {
+  padding: var(--sp-5) var(--sp-4);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-2);
+  text-align: center;
+}
+
+.cxlog__empty-title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.cxlog__empty-desc {
+  max-width: 30em;
+  margin: 6px auto 0;
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--ink-4);
+}
+
+.cxlog__empty-go {
+  margin-top: var(--sp-4);
+}
+
+.cxlog__group + .cxlog__group {
+  margin-top: var(--sp-5);
+}
+
+/* 日期条：日期读数 + 年份，底下压一条线，像合订本里的分隔页 */
+.cxlog__daybar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding-bottom: 5px;
+  margin-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.cxlog__day {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.cxlog__year {
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+/* ---------------------------------------------------------- 事件卡片 */
+
+.cxcard {
+  padding: var(--sp-3) var(--sp-4) var(--sp-3) 14px;
+  border: 1px solid var(--line);
+  /* 左边这道比别的粗：它就是整套状态记号的落点，一眼扫下来靠它分档 */
+  border-left-width: 3px;
+  border-left-color: var(--line-strong);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+
+.cxcard + .cxcard {
+  margin-top: var(--sp-3);
+}
+
+.cxcard.is-confirmed {
+  border-left-color: var(--ink-1);
+}
+
+.cxcard.is-likely {
+  border-left-color: var(--ink-3);
+}
+
+.cxcard.is-due {
+  border-left-color: var(--line-strong);
+}
+
+.cxcard.is-waiting {
+  border-left-color: var(--line);
+}
+
+/* 等待生效的整卡压暗一档：它还没发生，不该和已经发生的抢注意力 */
+.cxcard.is-waiting .cxcard__title {
+  color: var(--ink-2);
+}
+
+.cxcard__state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.cxcard__state-text {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+}
+
+.cxcard.is-confirmed .cxcard__state-text {
+  color: var(--ink-1);
+}
+
+.cxcard__state-hint {
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+}
+
+.cxcard__title {
+  margin: 0 0 4px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: 1.48;
+  letter-spacing: -0.01em;
+  color: var(--ink-1);
+  user-select: text;
+}
+
+.cxcard__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.cxcard__dot {
+  color: var(--ink-4);
+}
+
+.cxcard__scope {
+  margin-top: 5px;
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--ink-3);
+  user-select: text;
+}
+
+/* ---------------------------------------------------------- 卡片里的原帖 */
+
+.cxposts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 引用块：原帖是"证据"，用一层浅底和卡片的正文分开 */
+.cxpost {
+  padding: var(--sp-2) 10px var(--sp-2) 11px;
+  border-left: 2px solid var(--line-strong);
+  border-radius: 0 var(--r-1) var(--r-1) 0;
+  background: var(--surface-2);
+}
+
+.cxpost__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: 3px;
+}
+
+.cxpost__stage {
+  padding: 0 5px;
+  border-radius: var(--r-1);
+  background: var(--surface-3);
+  font-size: var(--fs-2xs);
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+.cxpost__time {
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+.cxpost__link {
+  margin-left: auto;
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+
+.cxpost__link:hover {
+  color: var(--signal);
+}
+
+.cxpost__text {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.72;
+  color: var(--ink-2);
+  user-select: text;
+  /* 推文自带换行，原样保留 —— 重排会把它的分段感弄丢 */
+  white-space: pre-wrap;
+}
+
+/* 英文原文：默认收起来。中文译文已经够用，原文是给要核对的人看的 */
+.cxpost__more {
+  margin-top: 5px;
+}
+
+.cxpost__more > summary {
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+  cursor: pointer;
+  list-style: none;
+}
+
+.cxpost__more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.cxpost__more > summary::before {
+  content: '▸ ';
+  color: var(--ink-4);
+}
+
+.cxpost__more[open] > summary::before {
+  content: '▾ ';
+}
+
+.cxpost__more > summary:hover {
+  color: var(--signal);
+}
+
+.cxpost__original {
+  margin: 5px 0 0;
+  padding-top: 5px;
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  line-height: 1.68;
+  color: var(--ink-3);
+  user-select: text;
+  white-space: pre-wrap;
+}
+
+/* ---------------------------------------------------------- 卡片页脚 */
+
+.cxcard__foot {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line);
+}
+
+.cxcard__open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+
+.cxcard__open:hover {
+  color: var(--signal);
+}
+
+.cxcard__open svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* ================================================================ 收藏夹 */
+
+.saved {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.saved__kind {
+  flex: none;
+  margin-top: 2px;
+  padding: 2px 7px;
+  border-radius: var(--r-1);
+  background: var(--surface-3);
+  color: var(--ink-3);
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+}
+
+.saved__main {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.saved__title {
+  display: block;
+  font-size: var(--fs-base);
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--ink-1);
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+
+.saved__main:hover .saved__title {
+  color: var(--signal);
+}
+
+.saved__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: var(--fs-xs);
+  color: var(--ink-4);
+}
+
+/* ================================================================ 更新日志 */
+
+/* ---------------------------------------------------------- 两栏 */
+
+/*
+ * 左主列 + 右索引。宽度还是那笔账：主区 849px 减掉侧栏 188px 和 18px 的沟，
+ * 主列拿到 643px。
+ * 侧栏 188 是按最长的一行量的 —— "2026 年 10 月"加右侧条数约 150px，
+ * 余下的是给选中态那圈边框留的。和报纸版式的右栏同宽，两个页面翻起来是一套。
+ */
+.logwrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 188px;
+  gap: 18px;
+  align-items: start;
+}
+
+.log {
+  min-width: 0;
+}
+
+/*
+ * 「这不是本应用的更新日志」。
+ *
+ * 它是这一页最容易被误解的地方 —— 侧栏里挨着「设置」、名字又叫「更新日志」，
+ * 不写清楚，用户会一直在里面找"悬浮胶囊是什么时候改的"。
+ * 但也不必做成警告条：一块浅底、一道左侧的短脊线，够把它和下面的列表分开就行。
+ */
+.log__scope {
+  margin-bottom: var(--sp-4);
+  padding: 9px var(--sp-3);
+  border-left: 2px solid var(--line-strong);
+  border-radius: 0 var(--r-1) var(--r-1) 0;
+  background: var(--surface);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--ink-3);
+}
+
+.log__scope b {
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+/* 筛选时顶上那行"筛出 N 条" —— 条件是在右边点的，左边得有个回声 */
+.log__filter {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-2);
+  margin-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.log__filter b {
+  font-family: var(--font-data);
+  color: var(--ink-1);
+}
+
+.log__filter-clear {
+  font-size: var(--fs-xs);
+  color: var(--signal);
+}
+
+/* 筛空了 —— 说清是筛没的，别让人以为这页没数据 */
+.log__none {
+  padding: var(--sp-6) var(--sp-4);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-2);
+  text-align: center;
+}
+
+.log__none-title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.log__none-desc {
+  margin: 6px 0 var(--sp-4);
+  font-size: var(--fs-xs);
+  color: var(--ink-4);
+}
+
+.log__day {
+  margin-bottom: var(--sp-5);
+}
+
+.log__date {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-2);
+  margin-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.log__weekday {
+  font-family: var(--font-data);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--ink-4);
+}
+
+.log__list {
+  display: flex;
+  flex-direction: column;
+}
+
+.log__item {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: var(--sp-4);
+  padding: var(--sp-3) 0;
+}
+
+.log__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding-top: 1px;
+}
+
+.log__time {
+  font-family: var(--font-data);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+/*
+ * 类型标记：四档按"分量"排 —— 更新用唯一那支强调色，其余落到墨阶上。
+ * 不开新颜色：一份日志里全是彩点，就等于哪个点都不是重点了。
+ */
+.log__kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+}
+
+.log__kind::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.log__kind.is-new {
+  color: var(--signal);
+}
+
+.log__kind.is-tune {
+  color: var(--ink-2);
+}
+
+.log__kind.is-note {
+  color: var(--ink-3);
+}
+
+.log__kind.is-retire {
+  color: var(--ink-4);
+}
+
+.log__body {
+  min-width: 0;
+}
+
+.log__title {
+  margin-bottom: 5px;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  line-height: 1.55;
+  color: var(--ink-1);
+}
+
+.log__para {
+  margin-bottom: 5px;
+  font-size: var(--fs-base);
+  line-height: 1.82;
+  color: var(--ink-2);
+  max-width: 52em;
+}
+
+.log__bullets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  max-width: 52em;
+}
+
+.log__bullets li {
+  position: relative;
+  padding-left: 13px;
+  font-size: var(--fs-sm);
+  line-height: 1.78;
+  color: var(--ink-3);
+}
+
+.log__bullets li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ink-4);
+}
+
+/*
+ * 特稿：更新日志里偶尔有一整天就是一篇长文（"AIHOT 2.0"那种）。
+ * 它和旁边那些一两行的流水账不是一个量级的东西，所以给它：
+ * 一条信号红脊线 + 一块抬起来的底 —— 在这一列灰白的记录里一眼能定位到。
+ */
+.log__item.is-feature {
+  padding: var(--sp-4);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--signal);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+
+.log__item.is-feature .log__title {
+  font-size: var(--fs-md);
+  line-height: 1.45;
+}
+
+/*
+ * 特稿的小节目录前面那句说明 —— 否则读起来像几条普通的要点。
+ *
+ * 字号用 --fs-xs 而不是更小的 --fs-2xs：10px 在这个位置（卡片底 --surface 上）
+ * 两种主题都读不出来，而它是唯一解释"下面这几行是什么"的东西。
+ * 颜色用 --ink-3：深色下落在 --surface 上有约 3.9:1，够用且不抢正文。
+ */
+.log__caption {
+  margin-top: var(--sp-4);
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+
+/*
+ * 特稿的 bullets 是小节标题，不是普通要点。
+ * 给到正文的字号和亮度 —— 这是卡片下半部分的视觉锚点，
+ * 压成灰色的 12px 小字会让整张卡的下半截糊成一片。
+ */
+.log__item.is-feature .log__bullets {
+  gap: 6px;
+  margin-top: 0;
+}
+
+.log__item.is-feature .log__bullets li {
+  padding-left: 0;
+  font-size: var(--fs-base);
+  color: var(--ink-2);
+}
+
+/* 每行自带 01–04 的编号，再挂一个圆点就是重复的标记 —— 去掉，让它读成一份目录 */
+.log__item.is-feature .log__bullets li::before {
+  display: none;
+}
+
+.log__more {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+/*
+ * "读全文"用信号红：它是这张卡唯一的出口（也是全文唯一的入口），
+ * 灰下去就没人找得到了。这里的红和脊线、类型点做的是同一件事 ——
+ * 指出"要看的在这里"，不是给卡片加装饰。
+ */
+.log__more-link {
+  color: var(--signal);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--signal-ghost);
+  text-underline-offset: 2px;
+}
+
+.log__more-link:hover {
+  text-decoration-color: currentColor;
+}
+
+.log__actions {
+  display: flex;
+  gap: var(--sp-2);
+  padding-top: var(--sp-4);
+  margin-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+
+/* ---------------------------------------------------------- 右：两把索引 */
+
+/*
+ * 跟着列表滚（sticky）—— 索引窄而长，列表长而窄，滚到一半要改筛选时
+ * 不用先滚回顶上。top 给 0 就够，因为滚动容器自带内边距。
+ */
+.logside {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.logside__card {
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+
+.logside__title {
+  margin: 0 0 7px;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+}
+
+.logside__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/*
+ * 一行 = 一个筛选条件。选中态是一圈边框 + 一档抬起来的底（照参考图），
+ * 不用信号红 —— 这里表示的是"正在看什么"，不是"哪里有信号"。
+ */
+.logside__opt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--r-1);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  transition: color var(--dur-fast) var(--ease-soft), background var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
+}
+
+.logside__opt:hover {
+  color: var(--ink-1);
+  background: var(--surface-2);
+}
+
+.logside__opt.is-on {
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+  color: var(--ink-1);
+  font-weight: 500;
+}
+
+.logside__dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-4);
+}
+
+/* "全部"用最实的一档墨 —— 它是这一列的默认，不是第五种类型 */
+.logside__dot.is-all {
+  background: var(--ink-1);
+}
+
+.logside__dot.is-new {
+  background: var(--signal);
+}
+
+.logside__dot.is-tune {
+  background: var(--ink-2);
+}
+
+.logside__dot.is-note {
+  background: var(--ink-3);
+}
+
+/* 次要信息该省略就省略，别把侧栏顶宽 —— 见报告版式里同样的处理 */
+.logside__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logside__count {
+  flex: none;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+.logside__note {
+  margin: 0 0 9px;
+  font-size: var(--fs-2xs);
+  line-height: 1.7;
+  color: var(--ink-4);
+}
+
+.logside__go {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  color: var(--signal);
+}
+
+.logside__go svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* ================================================================ 模型榜 */
+
+/*
+ * 五个榜的档位。
+ *
+ * 每个榜都是一份完整的排名 —— 换了榜，整张表连同口径一起换，
+ * 所以它们不是 tab 里的筛选项，是并列的档位。选中态也就照侧栏的读法来：
+ * 抬起来一块（surface + 一道阴影）、字加深加粗，不开新颜色。
+ */
+.lbpicks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--sp-4);
+}
+
+.lbpick {
+  padding: 5px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft),
+    background var(--dur-fast) var(--ease-soft);
+}
+
+.lbpick:hover {
+  border-color: var(--line-strong);
+  color: var(--ink-1);
+}
+
+.lbpick.is-on {
+  border-color: transparent;
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  color: var(--ink-1);
+  font-weight: 600;
+}
+
+/*
+ * 口径说明。
+ *
+ * 站上这一段本来就是给用户看的（评分是怎么算出来的），照搬；
+ * 后面接一句我们补的"价格单位"和"一屏只有 30 个" ——
+ * 后者是这张表最容易让人误会的地方：表里没有的模型，不等于排在 30 名之后。
+ */
+.lbnote {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px var(--sp-3);
+  margin-bottom: var(--sp-4);
+  border-left: 2px solid var(--line-strong);
+  border-radius: 0 var(--r-1) var(--r-1) 0;
+  background: var(--surface);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--ink-3);
+}
+
+.lbnote__tail {
+  font-size: var(--fs-xs);
+  color: var(--ink-4);
+}
+
+/*
+ * 一张表，八列。
+ *
+ * 为什么是表不是卡片流：这里所有的比较都是**按列**发生的 ——
+ * 谁便宜、谁分高、谁刚上线，都要竖着扫。摊成三十张卡片，这件事就没法做了。
+ *
+ * 列宽是算出来的：内容区 849 减去固定列 46+84+96+74+74+78+62 = 514、
+ * 再减去七个 10px 的列间距 = 265 给模型列（它要装下 "Claude Opus 5.5"
+ * 加一行厂商名）。数字列一律走等宽字体，上下对齐靠它，不靠 padding 硬凑。
+ */
+.lbtable {
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.lbrow {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 84px 96px 74px 74px 78px 62px;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 0 var(--sp-3);
+}
+
+.lbrow--head {
+  height: 34px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.06em;
+  color: var(--ink-4);
+}
+
+.lbrow--data {
+  min-height: 46px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  transition: background var(--dur-fast) var(--ease-soft);
+}
+
+.lbrow--data:last-child {
+  border-bottom: none;
+}
+
+.lbrow--data:hover {
+  background: var(--signal-ghost);
+}
+
+.lbcol {
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.lbcol--rank {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
+  color: var(--ink-4);
+}
+
+/* 数字列：等宽 + 右对齐。这八列里有一半是数字，对不齐整张表就散了 */
+.lbcol--num {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lbcol--dim {
+  color: var(--ink-3);
+}
+
+.lbcol--model {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.lbname {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+/* 厂商是次要信息：名字长的时候先省它，不省模型名 */
+.lbvendor {
+  flex: 0 1 auto;
+  max-width: 45%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+.lbcover {
+  margin-left: 5px;
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+/* 评分是这一行的落点 —— 字号比别的数字大一档，颜色最深 */
+.lbscore {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+/* ---------------------------------------------------------- 暂不排名 */
+
+/*
+ * 已经有分、但评测面还不够宽的模型。
+ *
+ * 用虚线框而不是实线：它不属于上面那张表，但也不是"没有数据" ——
+ * 虚线说的是"临时在这儿"。整块在榜单满员时不会出现。
+ */
+.lbpend {
+  margin-top: var(--sp-4);
+  padding: var(--sp-3);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-2);
+}
+
+.lbpend__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin-bottom: 5px;
+}
+
+.lbpend__title {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.lbpend__count {
+  font-family: var(--font-data);
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+.lbpend__note {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--ink-4);
+}
+
+.lbpend__list {
+  display: flex;
+  flex-direction: column;
+}
+
+.lbpend__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) 52px;
+  gap: var(--sp-3);
+  align-items: baseline;
+  width: 100%;
+  padding: 7px var(--sp-2);
+  border-radius: var(--r-1);
+  text-align: left;
+  transition: background var(--dur-fast) var(--ease-soft);
+}
+
+.lbpend__item:hover {
+  background: var(--surface-2);
+}
+
+.lbpend__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.lbpend__reason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-2xs);
+  color: var(--ink-4);
+}
+
+.lbpend__score {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  text-align: right;
+  color: var(--ink-3);
+}
+
+.lbacts {
+  display: flex;
+  gap: var(--sp-2);
+  padding-top: var(--sp-4);
+  margin-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+
+/* 减少动态偏好：全部动画归零 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

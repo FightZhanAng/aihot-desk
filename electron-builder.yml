@@ -1,0 +1,57 @@
+appId: com.tomcato.aihot-desk
+productName: AI 热点
+copyright: Copyright © 2026 tomcato
+
+directories:
+  buildResources: resources
+  output: release
+
+# 更新源的声明。它只影响两处：
+#   1. 打包时生成 resources/app-update.yml —— electron-updater 靠它知道去哪儿查版本
+#   2. 生成 latest.yml（版本清单），CI 会连同安装包一起传上 Release
+# 真正上传由 CI 的 gh release create 负责，dist 脚本固定带 --publish never。
+# owner/repo 必须和 main/index.ts 里的 RELEASE_PAGE 指向同一个仓库，
+# 否则应用内检查更新与「打开发布页」会走到两个地方。
+publish:
+  provider: github
+  owner: FightZhanAng
+  repo: aihot-desk
+
+files:
+  - out/**/*
+  - package.json
+
+extraResources:
+  - from: resources
+    to: assets
+    filter:
+      - '**/*'
+
+win:
+  # 用自己生成的多尺寸 .ico，别交给 electron-builder 转 ——
+  # 它内置的 WASM 图标工具在内存受限环境下会直接崩掉打包流程
+  icon: resources/icon.ico
+  # 可执行文件名保持 ASCII：中文 exe 名在部分工具链和快捷方式解析上会出问题
+  executableName: aihot-desk
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+# nsis 安装版是唯一支持应用内自动更新的形态：它有一个稳定的安装目录，
+# electron-updater 才能把新版本覆盖上去。portable 版没有，所以那个形态下
+# 应用只提供「打开发布页」。
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: AI 热点
+  artifactName: aihot-desk-${version}-setup.${ext}
+
+portable:
+  artifactName: aihot-desk-${version}-portable.${ext}

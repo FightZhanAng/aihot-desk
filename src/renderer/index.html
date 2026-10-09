@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws://localhost:* http://localhost:*"
+    />
+    <title>AI 热点</title>
+  </head>
+  <body>
+    <!--
+      #root 里放静态兜底文案：React 挂载后会替换掉它。
+      有这行字，"脚本没跑起来"和"窗口没显示"在屏幕上就能一眼区分开 ——
+      否则两者都是一片空白，只能靠猜。
+    -->
+    <div id="root">
+      <div
+        style="
+          height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-family: 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+          font-size: 14px;
+          color: #7c8695;
+          background: #eef0f3;
+        "
+      >
+        正在接收信号…
+      </div>
+    </div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>
