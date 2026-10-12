@@ -1,6 +1,8 @@
 node_modules/
 out/
 release/
+# AI 助手的本地工作目录（记忆、临时产物），不进版本库
+.workbuddy/
 .tmp-*/
 *.tsbuildinfo
 .DS_Store
