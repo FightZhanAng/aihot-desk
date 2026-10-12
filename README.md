@@ -285,7 +285,7 @@ AIHOT 2.0），只取标题、导语和小节目录，换一张带信号红脊�
 pnpm install          # 依赖（electron 二进制若缺失，见下方"离线装 electron"）
 pnpm dev              # 开发模式（HMR）
 pnpm typecheck        # 类型检查 —— 提交前必跑，build 不做类型校验
-pnpm test:core        # 纯逻辑测试（295 项：信号量化 / 时间 / 版本比较 / 报告规范化与
+pnpm test:core        # 纯逻辑测试（304 项：信号量化 / 时间 / 版本比较 / 报告规范化与
                       #   期号统计 / 收藏 / 更新日志解析与分档统计 / 模型榜解析 /
                       #   链接识别 / Codex 事件）
 pnpm build            # 构建到 out/

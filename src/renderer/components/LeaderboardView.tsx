@@ -175,7 +175,9 @@ function Row({
       <span className="lbcol lbcol--num lbcol--dim">{model.priceCache ?? '—'}</span>
       <span className="lbcol lbcol--num">{model.priceInput ?? '—'}</span>
       <span className="lbcol lbcol--num">{model.priceOutput ?? '—'}</span>
-      <span className="lbcol lbcol--num lbscore">{model.score.toFixed(1)}</span>
+      <span className="lbcol lbcol--num lbscore">
+        {model.score === null ? '—' : model.score.toFixed(1)}
+      </span>
     </button>
   )
 }
@@ -195,7 +197,7 @@ function PendingRow({
     >
       <span className="lbpend__name">{item.name}</span>
       <span className="lbpend__reason">{item.reason}</span>
-      <span className="lbpend__score">{item.score.toFixed(1)}</span>
+      <span className="lbpend__score">{item.score === null ? '—' : item.score.toFixed(1)}</span>
     </button>
   )
 }

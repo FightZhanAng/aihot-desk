@@ -90,7 +90,13 @@ export class LeaderboardFeed {
       return this.withStale(board, '模型榜读取失败，稍后再试')
     }
 
-    const parsed = parseLeaderboard(html, board)
+    /* 同 changelog.ts：解析抛异常不该绕过"降级成读不出来"这条路径 */
+    let parsed: LeaderboardBoard | null
+    try {
+      parsed = parseLeaderboard(html, board)
+    } catch {
+      return this.withStale(board, '模型榜的页面结构变了，暂时读不出来')
+    }
     if (!parsed) {
       // 一行都没解出来，说明页面结构变了。
       // 这时候宁可说"读不出来"，也不要给一张空榜让人以为这个榜上没人。

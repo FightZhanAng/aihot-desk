@@ -92,6 +92,12 @@ function maybeInt(value: string | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+/** 同上，用于小数（评分）。parseFloat 解析不到会给 NaN，不能让它流向界面 */
+function maybeFloat(value: string | undefined): number | null {
+  const parsed = Number.parseFloat(value ?? '')
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 export function parseLeaderboard(html: string, board: string): LeaderboardBoard | null {
   if (typeof html !== 'string' || html.length === 0) return null
 
@@ -167,7 +173,7 @@ function parseRow(slug: string, chunk: string): LeaderboardModel | null {
     priceCache: money[0] ?? null,
     priceInput: money[1] ?? null,
     priceOutput: money[2] ?? null,
-    score: Number.parseFloat(SCORE_RE.exec(chunk)?.[1] ?? '')
+    score: maybeFloat(SCORE_RE.exec(chunk)?.[1])
   }
 }
 
@@ -217,8 +223,6 @@ function parsePendingItem(chunk: string): LeaderboardPending | null {
     reason: textOf(
       /<small class="block truncate text-\[12px\][^"]*">([\s\S]*?)<\/small>/.exec(chunk)?.[1] ?? ''
     ),
-    score: Number.parseFloat(
-      /<span class="mono text-\[18px\][^"]*">([\d.]+)<\/span>/.exec(chunk)?.[1] ?? ''
-    )
+    score: maybeFloat(/<span class="mono text-\[18px\][^"]*">([\d.]+)<\/span>/.exec(chunk)?.[1])
   }
 }

@@ -13,7 +13,7 @@ import {
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { formatClock } from '../shared/format'
+import { CATEGORY_ORDER, formatClock } from '../shared/format'
 import { makeSaved } from '../shared/saved'
 import type {
   AppInfo,
@@ -296,7 +296,13 @@ function createMainWindow(): BrowserWindow {
       preload: preloadPath(),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      /*
+       * 渲染层是个纯本地页面：既不联网（数据全走 IPC），也没有 Node 需求。
+       * preload 产物只有一行 require('electron')，不依赖任何 Node 能力，
+       * 所以沙箱可以开着 —— 纵深防御，多一层不需要付代价。
+       * （改 preload 时注意保持这一点：一旦它 require 了 Node 内建，这里要一起改）
+       */
+      sandbox: true
     }
   })
 
@@ -400,7 +406,11 @@ function openExternal(raw: unknown): void {
   try {
     const url = new URL(raw)
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return
-    void shell.openExternal(url.toString())
+    // 外层 try 只能接住同步异常；调用本身是 promise，也要接住拒绝 ——
+    // 主进程的未处理拒绝会掀翻整个应用
+    void shell.openExternal(url.toString()).catch(() => {
+      /* 系统里打不开这个链接（没有默认浏览器之类），忽略 */
+    })
   } catch {
     /* 不是合法 URL，丢弃 */
   }
@@ -413,7 +423,15 @@ function registerIpc(): void {
   ipcMain.handle('snapshot:refresh', () => refresh())
 
   ipcMain.handle('feed:set-category', (_event, category: unknown) => {
-    const next = typeof category === 'string' && category.length > 0 ? category : null
+    /*
+     * 白名单校验：这个值会拼进请求路径、也会成为缓存键 ——
+     * 只认界面上真实存在的五个分类（将来的新分类会先进 CATEGORY_ORDER，
+     * 从这里流过去，不会静默变成"全部"）。
+     */
+    const next =
+      typeof category === 'string' && (CATEGORY_ORDER as readonly string[]).includes(category)
+        ? category
+        : null
     return refresh({ category: next })
   })
 

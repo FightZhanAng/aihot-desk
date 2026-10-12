@@ -411,8 +411,8 @@ export interface LeaderboardModel {
   priceCache: string | null
   priceInput: string | null
   priceOutput: string | null
-  /** AIHOT 评分（0~100） */
-  score: number
+  /** AIHOT 评分（0~100）；页面没印时 null（和"评分是 0"不是一回事） */
+  score: number | null
 }
 
 /**
@@ -424,7 +424,7 @@ export interface LeaderboardPending {
   name: string
   /** 为什么暂不排名（"编程评测还不到 3 类 · 15 项评测"） */
   reason: string
-  score: number
+  score: number | null
 }
 
 /**

@@ -52,6 +52,7 @@ import {
   weekdayOf
 } from '../src/shared/format'
 import { itemIdFromUrl, storyIdFromUrl } from '../src/shared/links'
+import { decodeEntities } from '../src/shared/html'
 import { LEADERBOARD_BOARDS, leaderboardPath, parseLeaderboard } from '../src/shared/leaderboard'
 import {
   dailyStats,
@@ -829,6 +830,23 @@ check('类型标签', [savedKindLabel('item'), savedKindLabel('story')], ['资�
 check('未知类型兜底成资讯', savedKindLabel('whatever'), '资讯')
 check('makeSaved 把没给的字段补 null', makeSaved({ kind: 'item', id: 'x', title: 't' }).summary, null)
 
+/* ---------------------------------------------------------- HTML 实体解码 */
+
+/*
+ * 两个解析器（更新日志 / 模型榜）共用的底座。
+ *
+ * 这里有一个曾能把整条解析链掀翻的输入：越界的数字实体 ——
+ * String.fromCodePoint 对 > 0x10FFFF 的码点直接抛 RangeError。
+ * 解析外部页面的函数不该有这种能把调用方吵醒的输入：认不出来就原样保留。
+ */
+check('常规实体照常解码', decodeEntities('&amp; &#65; &hellip;'), '& A …')
+check('十六进制实体', decodeEntities('&#x4E2D;'), '中')
+check('认不出的命名实体原样保留', decodeEntities('&unknownthing;'), '&unknownthing;')
+check('越界的十进制实体原样保留，不抛异常', decodeEntities('&#999999999;'), '&#999999999;')
+check('越界的十六进制实体原样保留', decodeEntities('&#x110000;'), '&#x110000;')
+check('零实体原样保留', decodeEntities('&#0;'), '&#0;')
+check('最大合法码点照常解码', decodeEntities('&#x10FFFF;'), String.fromCodePoint(0x10ffff))
+
 /* ---------------------------------------------------------- 更新日志解析 */
 
 /*
@@ -1045,6 +1063,14 @@ check(
   ]
 )
 check('认不出的榜名退回综合榜', leaderboardPath('nope'), '/leaderboard')
+
+/*
+ * 评分是唯一一个"有可能没印"的小数字段：parseFloat('') 会给 NaN，
+ * 而 NaN 会一路穿到界面上、显示成"NaN" —— 必须收成 null，由界面画占位符。
+ */
+const noScore = parseLeaderboard(sparseHtml.replace(/ aria-label="[^"]*"/, ''), 'coding')?.rows[0]
+check('评分解析不到时是 null，不是 NaN', noScore?.score, null)
+check('评分缺失不影响这一行本身', noScore?.name, 'X One')
 
 /* ---------------------------------------------------------- 结果 */
 

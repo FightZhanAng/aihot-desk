@@ -50,6 +50,13 @@ const TIMEOUT_MS = 15_000
 /** 拿不准的 Retry-After 时的兜底冷却 */
 const FALLBACK_RETRY_MS = 120_000
 
+/**
+ * 缓存条目上限。键是 URL —— 搜索词、报告期号、事件 id 都会持续新增，
+ * 不设上限的话它只会一直涨（几个月下来就是几千条）。
+ * 超了丢最早的那条：Map 的迭代顺序就是插入顺序，从头删即可。
+ */
+const CACHE_MAX = 200
+
 interface CacheEntry {
   etag: string | null
   body: unknown
@@ -227,7 +234,7 @@ export class AihotClient {
 
     if (response.status === 304 && cached) {
       // 内容没变 —— 刷新时间戳，仍算一次成功
-      this.cache.set(path, { ...cached, at: Date.now() })
+      this.remember(path, { ...cached, at: Date.now() })
       return { ok: true, data: cached.body as T }
     }
 
@@ -241,10 +248,25 @@ export class AihotClient {
 
     try {
       const body = (await response.json()) as T
-      this.cache.set(path, { etag: response.headers.get('etag'), body, at: Date.now() })
+      this.remember(path, { etag: response.headers.get('etag'), body, at: Date.now() })
       return { ok: true, data: body }
     } catch (error) {
       return this.fail<T>(path, response.status, error, cached)
+    }
+  }
+
+  /**
+   * 记住一份响应。重插会让这个键挪到 Map 末尾，所以从头删就是"丢最旧的"；
+   * 上限之外丢的是最早用过的那条 —— 近似 LRU 足够，这里防的是无界增长，
+   * 不是追求最优命中率。
+   */
+  private remember(path: string, entry: CacheEntry): void {
+    this.cache.delete(path)
+    this.cache.set(path, entry)
+    while (this.cache.size > CACHE_MAX) {
+      const oldest = this.cache.keys().next()
+      if (oldest.done) break
+      this.cache.delete(oldest.value)
     }
   }
 

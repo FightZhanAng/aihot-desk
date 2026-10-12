@@ -32,7 +32,13 @@ export function decodeEntities(input: string): string {
     if (code.startsWith('#')) {
       const hex = code[1] === 'x' || code[1] === 'X'
       const value = Number.parseInt(hex ? code.slice(2) : code.slice(1), hex ? 16 : 10)
-      return Number.isFinite(value) && value > 0 ? String.fromCodePoint(value) : whole
+      /*
+       * 上限必须挡住：String.fromCodePoint 对 > 0x10FFFF 的码点会直接抛 RangeError。
+       * 这是个"解析外部页面"的函数，一个越界实体不该有能力把整条解析链掀翻 ——
+       * 认不出来的实体原样保留，和下面未登记命名实体的处理保持一致。
+       */
+      if (!Number.isFinite(value) || value <= 0 || value > 0x10ffff) return whole
+      return String.fromCodePoint(value)
     }
     return ENTITIES[code] ?? whole
   })

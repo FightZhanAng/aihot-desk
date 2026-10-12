@@ -80,7 +80,18 @@ export class ChangelogFeed {
       return this.withStale('更新日志读取失败，稍后再试')
     }
 
-    const days = parseChangelog(html)
+    /*
+     * 解析包一层兜底：解析器对"认不出的结构"的承诺是返回空数组，
+     * 但真遇到能把正则链掀翻的输入（比如越界实体）它会抛异常 ——
+     * 抛出去会绕过下面那条"降级成读不出来"的设计，直接让整次加载变成失败。
+     * 对用户来说，认不出来和抛异常是同一件事：读不出来。
+     */
+    let days: ChangelogDay[]
+    try {
+      days = parseChangelog(html)
+    } catch {
+      return this.withStale('更新日志的页面结构变了，暂时读不出来')
+    }
     if (days.length === 0) {
       // 一条都没解析出来，说明页面结构变了。
       // 这时候宁可说"读不出来"，也不要展示一个空列表让人以为最近没有更新。

@@ -150,7 +150,9 @@ export class UpdateController {
     if (this.state.status !== 'available') return
     if (this.fakeVersion) {
       this.set({ status: 'downloading', percent: 0 })
-      this.set({ status: 'downloaded', percent: 100 })
+      // 和真实路径（update-downloaded 事件）保持同一个终态 ——
+      // 下载完就不该再有"可下载"的标记（冒烟里 canDownload 一直是 true，就是这么漏出来的）
+      this.set({ status: 'downloaded', percent: 100, canDownload: false })
       return
     }
     this.set({ status: 'downloading', percent: 0 })
@@ -170,7 +172,8 @@ export class UpdateController {
   }
 
   openReleasePage(): void {
-    void shell.openExternal(this.options.releasePage)
+    // 主进程的未处理拒绝会掀翻整个应用 —— 打不开就当没点过，不往上抛
+    void shell.openExternal(this.options.releasePage).catch(() => {})
   }
 
   /** 启动时那一次自动检查（延迟一点，别和首屏取数抢网络） */
@@ -228,7 +231,13 @@ export class UpdateController {
     // Windows 上 GUI 进程没有控制台，默认的 console 日志等于丢掉
     autoUpdater.logger = null
     autoUpdater.autoDownload = false
-    autoUpdater.autoInstallOnAppQuit = true
+    /*
+     * 关掉"退出时自动安装"。它的默认值是 true，语义是「只要下载过，
+     * 之后退出应用时就把新版静默装上」—— 那和界面上的承诺是两回事：
+     * 设置面板与 README 都写着"下载与安装都必须由用户点"。
+     * 关掉它，安装就只剩 install() 里那一条路径：用户点「重启并安装」。
+     */
+    autoUpdater.autoInstallOnAppQuit = false
     autoUpdater.autoRunAppAfterInstall = true
     // 只吃正式版：预发布包不该推给普通用户
     autoUpdater.allowPrerelease = false

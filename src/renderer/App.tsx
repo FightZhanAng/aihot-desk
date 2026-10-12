@@ -40,6 +40,12 @@ import { TitleBar } from './components/TitleBar'
 /** 手动操作的最小可见时长：再快的响应也要让"转了一下"被看见，否则像没反应 */
 const MIN_BUSY_MS = 650
 
+/*
+ * IPC 偶发失败（主进程侧异常）不该变成未处理的拒绝 —— 界面保持现状即可，
+ * 各视图自己还有加载态 / 错误态兜着。所有 invoke 链都挂上它收尾。
+ */
+const ignoreFailure = (): void => {}
+
 /**
  * 不依赖常驻快照的视图 —— 它们自己按需加载，所以首屏还没拿到数据时也能进。
  * 其余几栏要靠快照里的热榜 / 精选 / 日报，没数据就只能先转圈。
@@ -78,15 +84,15 @@ export function App(): ReactElement {
 
     void window.hotspot.getSnapshot().then((current) => {
       if (current) setSnapshot((prev) => prev ?? current)
-    })
+    }).catch(ignoreFailure)
     void window.hotspot.getSettings().then((current) => {
       if (current) setSettings((prev) => prev ?? current)
-    })
+    }).catch(ignoreFailure)
     void window.hotspot.getUpdate().then((current) => {
       if (current) setUpdate((prev) => prev ?? current)
-    })
-    void window.hotspot.getFavorites().then(setFavorites)
-    void window.hotspot.getAppInfo().then(setAppInfo)
+    }).catch(ignoreFailure)
+    void window.hotspot.getFavorites().then(setFavorites).catch(ignoreFailure)
+    void window.hotspot.getAppInfo().then(setAppInfo).catch(ignoreFailure)
 
     return () => {
       offSnapshot()
@@ -174,15 +180,15 @@ export function App(): ReactElement {
   const savedKeys = useMemo(() => savedKeySet(favorites), [favorites])
 
   const toggleSave = useCallback((input: SavedInput) => {
-    void window.hotspot.toggleFavorite(input).then(setFavorites)
+    void window.hotspot.toggleFavorite(input).then(setFavorites).catch(ignoreFailure)
   }, [])
 
   const removeSaved = useCallback((key: string) => {
-    void window.hotspot.removeFavorite(key).then(setFavorites)
+    void window.hotspot.removeFavorite(key).then(setFavorites).catch(ignoreFailure)
   }, [])
 
   const clearSaved = useCallback(() => {
-    void window.hotspot.clearFavorites().then(setFavorites)
+    void window.hotspot.clearFavorites().then(setFavorites).catch(ignoreFailure)
   }, [])
 
   /* ---------------------------------------------------------- 其它 */
@@ -211,9 +217,12 @@ export function App(): ReactElement {
   }, [])
 
   const patchSettings = useCallback((patch: Partial<Settings>) => {
-    void window.hotspot.updateSettings(patch).then((next) => {
-      if (next) setSettings(next)
-    })
+    void window.hotspot
+      .updateSettings(patch)
+      .then((next) => {
+        if (next) setSettings(next)
+      })
+      .catch(ignoreFailure)
   }, [])
 
   /*
@@ -228,16 +237,16 @@ export function App(): ReactElement {
 
   /* 版本更新：四个动作都直接打给主进程，状态靠 onUpdate 推回来 */
   const checkUpdate = useCallback(() => {
-    void window.hotspot.checkUpdate().then(setUpdate)
+    void window.hotspot.checkUpdate().then(setUpdate).catch(ignoreFailure)
   }, [])
   const downloadUpdate = useCallback(() => {
-    void window.hotspot.downloadUpdate().then(setUpdate)
+    void window.hotspot.downloadUpdate().then(setUpdate).catch(ignoreFailure)
   }, [])
   const installUpdate = useCallback(() => {
-    void window.hotspot.installUpdate()
+    void window.hotspot.installUpdate().catch(ignoreFailure)
   }, [])
   const openRelease = useCallback(() => {
-    void window.hotspot.openReleasePage()
+    void window.hotspot.openReleasePage().catch(ignoreFailure)
   }, [])
 
   const reportCodexCount = useCallback((count: number) => setCodexCount(count), [])
@@ -346,7 +355,11 @@ export function App(): ReactElement {
 
             <footer className="foot">
               <span>数据来自</span>
-              <button type="button" className="foot__link" onClick={() => void window.hotspot.openSite()}>
+              <button
+                type="button"
+                className="foot__link"
+                onClick={() => void window.hotspot.openSite().catch(ignoreFailure)}
+              >
                 AIHOT
               </button>
               <span>· 编辑精选与热点由 AIHOT 生成，版权归原始信源所有</span>
@@ -366,8 +379,8 @@ export function App(): ReactElement {
         onDownloadUpdate={downloadUpdate}
         onInstallUpdate={installUpdate}
         onOpenRelease={openRelease}
-        onOpenDataDir={() => void window.hotspot.openDataDir()}
-        onOpenSite={() => void window.hotspot.openSite()}
+        onOpenDataDir={() => void window.hotspot.openDataDir().catch(ignoreFailure)}
+        onOpenSite={() => void window.hotspot.openSite().catch(ignoreFailure)}
       />
     </div>
   )
