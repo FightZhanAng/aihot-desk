@@ -22,10 +22,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 必须放在 setup-node 之前 —— 后面的 cache: pnpm 依赖它
+      # 必须放在 setup-node 之前 —— 后面的 cache: pnpm 依赖它。
+      #
+      # 这里**故意不写** with.version：package.json 的 packageManager 已经钉了
+      # pnpm@10.34.5，action 会自己读它。两处都写的话，新版 action-setup 会判成
+      # "Multiple versions of pnpm specified" 直接失败（v0.2.1 首发就是这么挂的：
+      # @v4 是浮动标签，action 自身升级后这个检查才变严）。
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
