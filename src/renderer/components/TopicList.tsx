@@ -79,6 +79,9 @@ function TopicRow({
 
   const activate = (): void => onToggle(topic.id)
   const onKey = (event: KeyboardEvent<HTMLDivElement>): void => {
+    // 行里还有收藏、原文、阅读这些真按钮：焦点在它们身上时，回车/空格该由它们响应。
+    // 不挡这一下的话，下面的 preventDefault 会顶掉按钮自己的激活，结果按收藏却把整行展开了。
+    if (event.target !== event.currentTarget) return
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
       activate()

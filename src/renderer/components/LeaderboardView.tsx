@@ -31,7 +31,10 @@ interface LeaderboardViewProps {
 
 export function LeaderboardView({ onOpenUrl }: LeaderboardViewProps): ReactElement {
   const [board, setBoard] = useState<string>(LEADERBOARD_BOARDS[0].key)
-  const { loaded, reload } = useLoaded(() => window.hotspot.getLeaderboard(board), [board])
+  const { loaded, reload, reloadFresh } = useLoaded(
+    (force) => window.hotspot.getLeaderboard(board, force),
+    [board]
+  )
 
   const data = loaded?.data ?? null
 
@@ -128,7 +131,7 @@ export function LeaderboardView({ onOpenUrl }: LeaderboardViewProps): ReactEleme
           )}
 
           <div className="lbacts">
-            <button type="button" className="btn" onClick={reload}>
+            <button type="button" className="btn" onClick={reloadFresh}>
               <RefreshIcon />
               重新读取
             </button>

@@ -58,7 +58,10 @@ interface ChangelogViewProps {
 }
 
 export function ChangelogView({ onOpenUrl }: ChangelogViewProps): ReactElement {
-  const { loaded, reload } = useLoaded(() => window.hotspot.getChangelog(), [])
+  const { loaded, reload, reloadFresh } = useLoaded(
+    (force) => window.hotspot.getChangelog(force),
+    []
+  )
   /** null = 这一维不筛。两维叠加：都选中就都得满足 */
   const [kind, setKind] = useState<string | null>(null)
   const [month, setMonth] = useState<string | null>(null)
@@ -267,7 +270,7 @@ export function ChangelogView({ onOpenUrl }: ChangelogViewProps): ReactElement {
       )}
 
       <div className="log__actions">
-        <button type="button" className="btn" onClick={reload}>
+        <button type="button" className="btn" onClick={reloadFresh}>
           <RefreshIcon />
           重新读取
         </button>

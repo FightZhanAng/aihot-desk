@@ -5,11 +5,10 @@ import {
 } from '../shared/codex'
 import { type RawReport, type RawReportEntry, toReportDetail, toReportEntry } from '../shared/report'
 import { findNewTopEntries } from '../shared/signal'
+import type { FeedOptions } from '../shared/feed'
 import type {
-  CategoryFilter,
   CodexSnapshot,
   DailyReport,
-  FeedMode,
   HotTopic,
   Item,
   Loaded,
@@ -20,12 +19,6 @@ import type {
   SourceStatus,
   Story
 } from '../shared/types'
-
-/** 精选流的取数参数 */
-export interface FeedOptions {
-  category: CategoryFilter
-  mode: FeedMode
-}
 
 /*
  * AIHOT 公开接口客户端。

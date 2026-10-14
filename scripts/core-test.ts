@@ -76,6 +76,7 @@ import {
   savedKindLabel,
   sortSaved
 } from '../src/shared/saved'
+import { mergeFeedOptions } from '../src/shared/feed'
 import { SIGNAL_SEGMENTS, findNewTopEntries, itemSignal, signalLevel, topicSignal } from '../src/shared/signal'
 import type { HotTopic, Item, Story, UpdateState } from '../src/shared/types'
 import {
@@ -1071,6 +1072,45 @@ check('认不出的榜名退回综合榜', leaderboardPath('nope'), '/leaderboar
 const noScore = parseLeaderboard(sparseHtml.replace(/ aria-label="[^"]*"/, ''), 'coding')?.rows[0]
 check('评分解析不到时是 null，不是 NaN', noScore?.score, null)
 check('评分缺失不影响这一行本身', noScore?.name, 'X One')
+
+/* ---------------------------------------------------------- 精选流参数合并 */
+
+/*
+ * 这一段守的是"静默串档"：请求还没回来时连点两下，第二下只带一半参数。
+ * 基准若取了还没更新的快照，第一下点出来的分类就被吃掉 ——
+ * 筛选条高亮 A、列表里是 B 的内容，而且这个过程没有任何报错。
+ */
+check('没给补丁时原样返回', mergeFeedOptions({ category: 'paper', mode: 'all' }), {
+  category: 'paper',
+  mode: 'all'
+})
+check('只给模式：分类沿用基准', mergeFeedOptions({ category: null, mode: 'selected' }, { mode: 'all' }), {
+  category: null,
+  mode: 'all'
+})
+check(
+  '只给分类：模式沿用基准',
+  mergeFeedOptions({ category: null, mode: 'all' }, { category: 'ai-models' }),
+  { category: 'ai-models', mode: 'all' }
+)
+check(
+  '显式给 null 分类是"全部"，不是"没给"',
+  mergeFeedOptions({ category: 'paper', mode: 'selected' }, { category: null }),
+  { category: null, mode: 'selected' }
+)
+
+// 复现那个 bug 的最小序列：第一趟已经请求 {ai-models, selected}，第二下只点了「全部动态」。
+// 拿还没更新的快照当基准会算成 {null, 'all'}（分类被吃掉），这条断言就是那时会红的那一条。
+check(
+  '排队的第二下不会把第一下点出来的分类吃掉',
+  mergeFeedOptions({ category: 'ai-models', mode: 'selected' }, { mode: 'all' }),
+  { category: 'ai-models', mode: 'all' }
+)
+check(
+  '反过来也一样：第二下不能把模式退回旧值',
+  mergeFeedOptions({ category: null, mode: 'all' }, { category: 'industry' }),
+  { category: 'industry', mode: 'all' }
+)
 
 /* ---------------------------------------------------------- 结果 */
 

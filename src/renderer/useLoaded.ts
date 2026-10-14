@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Loaded } from '@shared/types'
 
 /*
@@ -12,18 +12,43 @@ import type { Loaded } from '@shared/types'
  * alive 标志保证只有"当前这一轮"的结果会被写进 state。
  */
 export function useLoaded<T>(
-  load: () => Promise<Loaded<T>>,
+  load: (force: boolean) => Promise<Loaded<T>>,
   deps: readonly unknown[]
-): { loaded: Loaded<T> | null; reload: () => void } {
+): { loaded: Loaded<T> | null; reload: () => void; reloadFresh: () => void } {
   const [loaded, setLoaded] = useState<Loaded<T> | null>(null)
   const [tick, setTick] = useState(0)
+  /*
+   * 这一轮要不要跳过主进程的缓存。
+   *
+   * 放 ref 而不是 state：它是**一次性**的 —— 取一次就复位，不能变成常驻开关，
+   * 否则一次"重新读取"会让后面每次换榜单/切档位都跟着绕开缓存。
+   * 默认允许缓存：第一次进一个视图没必要绕开它。
+   */
+  const force = useRef(false)
 
-  const reload = useCallback(() => setTick((n) => n + 1), [])
+  const reload = useCallback(() => {
+    force.current = false
+    setTick((n) => n + 1)
+  }, [])
+
+  /**
+   * 明确要求"重新读一遍"时走这条。
+   *
+   * 主进程的 changelog / leaderboard 缓存是 30 分钟，不把 force 传下去的话，
+   * 它会把缓存副本直接还回来 —— 按钮点了等于什么都没做（转一圈加载态、数据一模一样）。
+   */
+  const reloadFresh = useCallback(() => {
+    force.current = true
+    setTick((n) => n + 1)
+  }, [])
 
   useEffect(() => {
     let alive = true
     setLoaded(null)
-    void load()
+    // 取一次就复位：这是"这一轮要不要绕开缓存"，不是常驻开关
+    const skipCache = force.current
+    force.current = false
+    void load(skipCache)
       .then((result) => {
         if (alive) setLoaded(result)
       })
@@ -37,5 +62,5 @@ export function useLoaded<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick])
 
-  return { loaded, reload }
+  return { loaded, reload, reloadFresh }
 }

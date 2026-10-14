@@ -1,6 +1,6 @@
 {
   "name": "aihot-desk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "packageManager": "pnpm@10.34.5",
   "description": "AI 热点信号台 —— 托盘常驻，实时接收 AIHOT 的中文 AI 资讯：热点榜、精选流、每日简报",

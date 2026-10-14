@@ -121,11 +121,18 @@ export function SettingsDrawer({
             <div className="updater">
               <div className="updater__row">
                 <span className="updater__version">v{appInfo?.version ?? update?.current ?? '—'}</span>
+                {/*
+                  下载完的更新只等安装：这一态下「检查更新」是禁用的 ——
+                  再查一次会把状态挪走，「重启并安装」的入口就没了（见 main/updater.ts）。
+                */}
                 <button
                   type="button"
                   className="btn"
                   onClick={onCheckUpdate}
-                  disabled={update ? updateBusy(update.status) : false}
+                  disabled={
+                    update ? updateBusy(update.status) || update.status === 'downloaded' : false
+                  }
+                  title={update?.status === 'downloaded' ? '更新已下载，重启即可安装' : undefined}
                 >
                   {update?.status === 'checking' ? '检查中…' : '检查更新'}
                 </button>

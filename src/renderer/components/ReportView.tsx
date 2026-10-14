@@ -187,6 +187,15 @@ export function ReportView({ savedKeys, onToggleSave, onOpenUrl }: ReportViewPro
         而且横排到 20 多期就得横向滚。
       */}
 
+      {/*
+        往期列表是另一份请求（reports:list）。它失败时正文照常显示，但左边那一栏
+        会是空的、期号徽记也会退化成"全年 0 期" —— 不把这条错误显示出来，
+        用户就分不清"这一刊还没有往期"和"往期没取到"。
+      */}
+      {list.loaded?.error && (
+        <ErrorBanner message={`往期列表：${list.loaded.error}`} onRetry={list.reload} />
+      )}
+
       {detailNode}
     </>
   )
@@ -478,7 +487,8 @@ function IssueStamp({
         <span className="stamp__weekday">{weekdayOf(`${month}-${String(day).padStart(2, '0')}`)}</span>
       </div>
       <div className="stamp__side">
-        <div className="stamp__count">本月 {issueDays.size} 期</div>
+        {/* 归档列表没取到时这里是 0 —— 印一句"本月 0 期"等于把加载失败说成了事实 */}
+        {issueDays.size > 0 && <div className="stamp__count">本月 {issueDays.size} 期</div>}
         <div className="stamp__mini">
           {MINI_WEEKDAYS.map((name) => (
             <span className="stamp__wk" key={name}>
@@ -767,19 +777,22 @@ function IssueBoard({
       <div className="board__side">
         <div className="board__year">
           <span>{year} 年</span>
-          <span className="board__total">全年 {yearTotal} 期</span>
+          {/* 归档列表没取到时 yearTotal 是 0 —— 与其印"全年 0 期"和一行空刻度，不如不印 */}
+          {yearTotal > 0 && <span className="board__total">全年 {yearTotal} 期</span>}
         </div>
         {/* 一年出多少期就画多少个点 —— 这是"出到哪儿了"，不是进度条 */}
-        <div className="board__ticks" title={`${year} 年共 ${yearTotal} 期，当前第 ${issueNo} 期`}>
-          {Array.from({ length: yearTotal }, (_, index) => (
-            <span
-              key={index}
-              className={`board__tick${index + 1 === issueNo ? ' is-current' : ''}${
-                index + 1 < issueNo ? ' is-past' : ''
-              }`}
-            />
-          ))}
-        </div>
+        {yearTotal > 0 && (
+          <div className="board__ticks" title={`${year} 年共 ${yearTotal} 期，当前第 ${issueNo} 期`}>
+            {Array.from({ length: yearTotal }, (_, index) => (
+              <span
+                key={index}
+                className={`board__tick${index + 1 === issueNo ? ' is-current' : ''}${
+                  index + 1 < issueNo ? ' is-past' : ''
+                }`}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

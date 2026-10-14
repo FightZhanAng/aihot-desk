@@ -121,6 +121,14 @@ export class UpdateController {
       return
     }
     if (this.state.status === 'checking' || this.state.status === 'downloading') return
+    /*
+     * 已经下载完、只等用户点「重启并安装」的这一态不再检查。
+     *
+     * 检查会把状态挪走：查到新版本 → available（"重启并安装"换回"下载新版本"），
+     * 查失败 → error（入口整个消失）。而下载好的安装包就在磁盘上，
+     * 用户却找不到安装的按钮了，只能重新下一遍。
+     */
+    if (this.state.status === 'downloaded') return
 
     if (this.fakeVersion) {
       this.set({ status: 'checking', message: '' })

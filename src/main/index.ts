@@ -13,6 +13,7 @@ import {
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mergeFeedOptions, type FeedOptions } from '../shared/feed'
 import { CATEGORY_ORDER, formatClock } from '../shared/format'
 import { makeSaved } from '../shared/saved'
 import type {
@@ -26,7 +27,7 @@ import type {
   UpdateState,
   WindowBounds
 } from '../shared/types'
-import { AihotClient, type FeedOptions } from './aihot'
+import { AihotClient } from './aihot'
 import { ChangelogFeed } from './changelog'
 import { LeaderboardFeed } from './leaderboard'
 import { appIconPath, hardenWindow, loadRenderer, preloadPath, trayIconPath } from './paths'
@@ -204,12 +205,20 @@ function notifyHot(topics: { title: string }[]): void {
   }
 }
 
-/** 这一趟取数用什么参数：没显式给的就沿用上一轮的 */
+/**
+ * 最近一次**已经请求出去**的取数参数 —— resolveFeed 的兜底基准。
+ *
+ * 兜底为什么不能用 snapshot：snapshot 要等这一趟取数回来才更新。在它更新之前
+ * 拿它当基准，同一批调用里第二次点的那一下就会把第一次的参数吃掉 ——
+ * 先点分类、再点模式时，第二次算出来的 category 还是旧的，补跑时分类被切回去，
+ * 界面高亮着新分类、列表却是旧分类的内容，而且此后每一轮自动刷新都沿用这个错值。
+ */
+let currentFeed: FeedOptions = { category: null, mode: 'selected' }
+
+/** 这一趟取数用什么参数：没显式给的就沿用最近一次请求过的那一份（合并规则见 shared/feed.ts） */
 function resolveFeed(patch?: Partial<FeedOptions>): FeedOptions {
-  return {
-    category: patch?.category !== undefined ? patch.category : (snapshot?.feed.category ?? null),
-    mode: patch?.mode ?? snapshot?.feed.mode ?? 'selected'
-  }
+  // 基准取"最后一次请求过的参数"：有排队的补跑时以它为准，否则以当前值
+  return mergeFeedOptions(pendingFeed ?? currentFeed, patch)
 }
 
 function sameFeed(a: FeedOptions, b: FeedOptions): boolean {
@@ -224,6 +233,8 @@ function sameFeed(a: FeedOptions, b: FeedOptions): boolean {
  */
 function refresh(patch?: Partial<FeedOptions>): Promise<Snapshot> {
   const target = resolveFeed(patch)
+  // 先记成"当前参数"，后面几次调用的缺省字段都以它为准（不能等 snapshot 回来）
+  currentFeed = target
   if (refreshing) {
     pendingFeed = target
     return refreshing
